@@ -1,26 +1,13 @@
-# IDE & Visual Studio
-.vs/
-.idea/
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
-
-# Build outputs
 bin/
 obj/
-dist/
-
-# Logs & identity
-logs/
-device-identity.json
-
-# Native & dependencies
-ffmpeg/
-tools/w64devkit/
 native/build/
 native/reference/
+logs/
+device-identity.json
+ffmpeg/
+*.user
+dist/
+tools/w64devkit/
 src/AirServerLite/native/*.dll
 
-# External repository
 WebDriverAgent/
