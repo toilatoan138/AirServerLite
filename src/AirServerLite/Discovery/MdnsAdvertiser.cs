@@ -1,0 +1,196 @@
+using System.Net;
+using AirServerLite.Core;
+using Makaretu.Dns;
+
+namespace AirServerLite.Discovery;
+
+/// <summary>
+/// Broadcasts the two records iOS looks for in Control Center:
+///   _airplay._tcp  - the mirroring/video service (the one that makes the entry appear)
+///   _raop._tcp     - the audio (Remote Audio Output Protocol) service
+///
+/// The TXT record contents are not cosmetic. iOS parses "features" and "srcvers" to decide
+/// which protocol dialect to speak; get them wrong and the phone either ignores the device
+/// entirely or opens an RTSP session and immediately tears it down.
+///
+/// The values below mirror the well-known RPiPlay/UxPlay profile, which presents as an
+/// Apple TV 3rd gen (AppleTV3,2) speaking srcvers 220.68. That combination keeps iOS on the
+/// legacy (non-HomeKit) pairing path, which is the only one a receiver can implement
+/// without an Apple-issued certificate.
+/// </summary>
+public sealed class MdnsAdvertiser : IDisposable
+{
+    // features bitfield, low,high. 0x5A7FFFF7 advertises: video, photo, screen mirroring,
+    // audio, FairPlay v3, "unified advertiser info", legacy pairing.
+    private const string Features = "0x5A7FFFF7,0x1E";
+
+    private readonly DeviceIdentity _identity;
+    private readonly IPAddress _address;
+    private readonly int _port;
+    private readonly bool _advertiseRaop;
+
+    private ServiceDiscovery? _sd;
+    private ServiceProfile? _airplayProfile;
+    private ServiceProfile? _raopProfile;
+    private bool _disposed;
+
+    public bool IsRunning { get; private set; }
+
+    public MdnsAdvertiser(DeviceIdentity identity, IPAddress address, int port, bool advertiseRaop)
+    {
+        _identity = identity;
+        _address = address;
+        _port = port;
+        _advertiseRaop = advertiseRaop;
+    }
+
+    public void Start()
+    {
+        if (IsRunning) return;
+
+        if (NetUtil.IsAppleBonjourServiceRunning())
+            Log.Warn("mdns",
+                "Apple 'Bonjour Service' (mDNSResponder.exe) is running. It owns UDP 5353 and may " +
+                "suppress our announcements. If the iPhone does not see the device, stop that " +
+                "service: sc stop \"Bonjour Service\"");
+
+        try
+        {
+            _sd = new ServiceDiscovery();
+
+            _airplayProfile = BuildAirPlayProfile();
+            _sd.Advertise(_airplayProfile);
+            _sd.Announce(_airplayProfile);
+            Log.Info("mdns", $"Advertised {_airplayProfile.FullyQualifiedName} at {_address}:{_port}");
+
+            if (_advertiseRaop)
+            {
+                _raopProfile = BuildRaopProfile();
+                _sd.Advertise(_raopProfile);
+                _sd.Announce(_raopProfile);
+                Log.Info("mdns", $"Advertised {_raopProfile.FullyQualifiedName}");
+            }
+
+            IsRunning = true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("mdns", "Failed to start mDNS advertiser", ex);
+            Stop();
+            throw;
+        }
+    }
+
+    private ServiceProfile BuildAirPlayProfile()
+    {
+        var p = new ServiceProfile(_identity.Name, "_airplay._tcp", (ushort)_port, new[] { _address });
+
+        // Clear the library's default "txtvers=1" so we control the record exactly.
+        p.Resources.RemoveAll(r => r is TXTRecord);
+        var txt = new TXTRecord { Name = p.FullyQualifiedName, TTL = TimeSpan.FromMinutes(75) };
+        void Add(string k, string v) => txt.Strings.Add(k + "=" + v);
+
+        Add("acl", "0");
+        Add("deviceid", _identity.DeviceId);
+        Add("features", Features);
+        Add("rsf", "0x0");
+        Add("fv", "p20.78.5");
+        Add("flags", "0x4");
+        Add("model", DeviceIdentity.ModelName);
+        Add("manufacturer", "AirServer-LITE");
+        Add("serialNumber", _identity.DeviceId.Replace(":", ""));
+        Add("protovers", "1.1");
+        Add("srcvers", DeviceIdentity.SourceVersion);
+        Add("pi", _identity.PairingUuid);
+        Add("psi", _identity.PairingUuid);
+        Add("gid", _identity.PairingUuid);
+        Add("gcgl", "0");
+        Add("pk", _identity.PublicKeyHex);
+        Add("vv", "2");
+
+        p.Resources.Add(txt);
+        return p;
+    }
+
+    private ServiceProfile BuildRaopProfile()
+    {
+        // RAOP instance names are conventionally "<deviceid-without-colons>@<name>".
+        var instance = _identity.DeviceId.Replace(":", "") + "@" + _identity.Name;
+        var p = new ServiceProfile(instance, "_raop._tcp", (ushort)_port, new[] { _address });
+
+        p.Resources.RemoveAll(r => r is TXTRecord);
+        var txt = new TXTRecord { Name = p.FullyQualifiedName, TTL = TimeSpan.FromMinutes(75) };
+        void Add(string k, string v) => txt.Strings.Add(k + "=" + v);
+
+        Add("txtvers", "1");
+        Add("ch", "2");          // channels
+        Add("cn", "0,1,2,3");    // audio codecs: PCM, ALAC, AAC, AAC-ELD
+        Add("et", "0,3,5");      // encryption types: none, FairPlay, FairPlay SAPv2.5
+        Add("md", "0,1,2");      // metadata: text, artwork, progress
+        Add("sr", "44100");
+        Add("ss", "16");
+        Add("vs", DeviceIdentity.SourceVersion);
+        Add("tp", "UDP");
+        Add("vn", "65537");
+        Add("da", "true");
+        Add("sv", "false");
+        Add("sf", "0x4");
+        Add("ft", Features);
+        Add("am", DeviceIdentity.ModelName);
+        Add("pk", _identity.PublicKeyHex);
+
+        p.Resources.Add(txt);
+        return p;
+    }
+
+    /// <summary>
+    /// Re-announce. iOS caches negative results aggressively; after a network change or a
+    /// failed session, an explicit re-announce gets the entry back in Control Center much
+    /// faster than waiting for the next periodic broadcast.
+    /// </summary>
+    public void ReAnnounce()
+    {
+        try
+        {
+            if (_sd is null) return;
+            if (_airplayProfile is not null) _sd.Announce(_airplayProfile);
+            if (_raopProfile is not null) _sd.Announce(_raopProfile);
+            Log.Debug("mdns", "Re-announced services");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("mdns", "Re-announce failed: " + ex.Message);
+        }
+    }
+
+    public void Stop()
+    {
+        try
+        {
+            if (_sd is not null)
+            {
+                if (_airplayProfile is not null) _sd.Unadvertise(_airplayProfile);
+                if (_raopProfile is not null) _sd.Unadvertise(_raopProfile);
+                _sd.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("mdns", "Error during mDNS shutdown: " + ex.Message);
+        }
+        finally
+        {
+            _sd = null;
+            _airplayProfile = null;
+            _raopProfile = null;
+            IsRunning = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Stop();
+    }
+}

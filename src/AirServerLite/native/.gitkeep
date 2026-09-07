@@ -1,0 +1,10 @@
+Native DLLs dropped here are embedded into the single-file build and unpacked at runtime
+by Core/NativeAssets.cs. Expected contents:
+
+  playfair.dll      built by native/build-playfair.ps1
+  avcodec-*.dll     from an FFmpeg 9.0 shared build
+  avutil-*.dll
+  swscale-*.dll
+  swresample-*.dll
+
+Populated by tools/pack.ps1. Not checked into git - see .gitignore.

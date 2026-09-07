@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Without this, building the .sln (Platform=x64) and building the .csproj directly
+         (Platform=AnyCPU) emit to different folders, so the native DLLs you dropped next to
+         one build are invisible to the other. -->
+    <AppendPlatformToOutputPath>false</AppendPlatformToOutputPath>
+    <SelfContained>false</SelfContained>
+    <AssemblyName>AirServerLite</AssemblyName>
+    <RootNamespace>AirServerLite</RootNamespace>
+    <LangVersion>12</LangVersion>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+    <Resource Include="Assets\logo.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
+    <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />
+    <PackageReference Include="plist-cil" Version="2.2.0" />
+    <PackageReference Include="FFmpeg.AutoGen" Version="9.0.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!--
+    Native libraries for the single-file build.
+
+    .NET's own single-file bundler cannot carry these usefully: playfair.dll is reached through
+    DllImport, and the FFmpeg family resolves each other's imports through the OS loader rather
+    than through us. So they ride along as managed resources and NativeAssets.cs unpacks them
+    on first run. Drop the DLLs into src/AirServerLite/native/ and they are picked up
+    automatically - an empty folder simply produces a normal folder-style build.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="native\*.dll">
+      <LogicalName>AirServerLite.native.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <!-- Also copy them loose so F5 debugging works without the pack step. -->
+    <None Include="native\*.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+</Project>

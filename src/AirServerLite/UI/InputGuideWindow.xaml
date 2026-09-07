@@ -1,0 +1,149 @@
+<Window x:Class="AirServerLite.UI.InputGuideWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Hướng dẫn điều khiển Chuột &amp; Bàn phím"
+        Icon="pack://application:,,,/Assets/app.ico"
+        Height="620" Width="580"
+        Background="{StaticResource Bg}"
+        Foreground="{StaticResource Text}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display">
+
+    <Grid Margin="20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <TextBlock Text="🎮 Điều khiển Chuột &amp; Bàn phím cho iPhone" FontSize="17" FontWeight="Bold" Margin="0,0,0,6"/>
+            <TextBlock Text="AirPlay là giao thức một chiều (chỉ truyền hình ảnh từ iPhone lên PC, Apple không gửi thao tác chuột ngược lại). Để điều khiển iPhone từ máy tính, bạn hãy chọn 1 trong 2 cách dưới đây:"
+                       Foreground="{StaticResource TextDim}" TextWrapping="Wrap" LineHeight="18"/>
+        </StackPanel>
+
+        <!-- Scrollable Options -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,14">
+            <StackPanel>
+                <!-- Option 1: Bluetooth AssistiveTouch -->
+                <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource PanelEdge}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,0,0,12">
+                    <StackPanel>
+                        <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                            <Border Background="#2634D399" BorderBrush="{StaticResource Good}" BorderThickness="1"
+                                    CornerRadius="4" Padding="6,2" DockPanel.Dock="Left">
+                                <TextBlock Text="KHUYÊN DÙNG • KHÔNG CẦN CÀI APP" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource Good}"/>
+                            </Border>
+                            <TextBlock Text="Cách 1: Bluetooth AssistiveTouch" FontSize="13.5" FontWeight="SemiBold"
+                                       Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </DockPanel>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" LineHeight="19">
+                            <Run Text="• Bước 1: " FontWeight="SemiBold"/>
+                            <Run Text="Mở iPhone ➔ "/>
+                            <Run Text="Cài đặt (Settings)" FontWeight="SemiBold"/>
+                            <Run Text=" ➔ "/>
+                            <Run Text="Trợ năng (Accessibility)" FontWeight="SemiBold"/>
+                            <Run Text=" ➔ "/>
+                            <Run Text="Cảm ứng (Touch)" FontWeight="SemiBold"/>
+                            <Run Text=" ➔ Bật "/>
+                            <Run Text="AssistiveTouch" FontWeight="SemiBold" Foreground="{StaticResource Good}"/>
+                            <Run Text="."/>
+                        </TextBlock>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" LineHeight="19">
+                            <Run Text="• Bước 2: " FontWeight="SemiBold"/>
+                            <Run Text="Trong trang AssistiveTouch, cuộn xuống chọn "/>
+                            <Run Text="Thiết bị con trỏ (Pointer Devices)" FontWeight="SemiBold"/>
+                            <Run Text=" ➔ "/>
+                            <Run Text="Thiết bị Bluetooth" FontWeight="SemiBold"/>
+                            <Run Text="."/>
+                        </TextBlock>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" LineHeight="19">
+                            <Run Text="• Bước 3: " FontWeight="SemiBold"/>
+                            <Run Text="Nhấn ghép đôi (Pair) với Bluetooth của máy tính này."/>
+                        </TextBlock>
+
+                        <Border Background="#FF16181D" BorderBrush="{StaticResource PanelEdge}" BorderThickness="1"
+                                CornerRadius="6" Padding="10,8">
+                            <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Good}" LineHeight="17">
+                                <Run Text="💡 Hiệu quả tức thì: " FontWeight="Bold"/>
+                                <Run Text="Con trỏ chuột tròn của iOS sẽ xuất hiện trên màn hình iPhone, bạn có thể click, cuộn trang và gõ văn bản trực tiếp từ máy tính mà không cần cài đặt thêm phần mềm nào!"/>
+                            </TextBlock>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- Option 2: WebDriverAgent -->
+                <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource PanelEdge}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12">
+                    <StackPanel>
+                        <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                            <Border Background="#263B82F6" BorderBrush="{StaticResource Accent}" BorderThickness="1"
+                                    CornerRadius="4" Padding="6,2" DockPanel.Dock="Left">
+                                <TextBlock Text="NÂNG CAO • WDA PORT 8100" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource Accent}"/>
+                            </Border>
+                            <TextBlock Text="Cách 2: Điều khiển qua WebDriverAgent (Wi-Fi / USB)" FontSize="13.5" FontWeight="SemiBold"
+                                       Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </DockPanel>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" LineHeight="19">
+                            <Run Text="• Bước 1: " FontWeight="SemiBold"/>
+                            <Run Text="Cài đặt và mở app "/>
+                            <Run Text="WebDriverAgentRunner" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/>
+                            <Run Text=" trên iPhone (qua AltStore, Sideloadly hoặc Xcode)."/>
+                        </TextBlock>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" LineHeight="19">
+                            <Run Text="• Bước 2 (Cáp USB): " FontWeight="SemiBold"/>
+                            <Run Text="Cắm cáp USB và chạy lệnh: "/>
+                            <Run Text="iproxy 8100 8100" FontFamily="Consolas" Foreground="{StaticResource Accent}"/>
+                            <Run Text=" (hoặc mở Apple Devices / iTunes)."/>
+                        </TextBlock>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" LineHeight="19">
+                            <Run Text="• Bước 2 (Wi-Fi): " FontWeight="SemiBold"/>
+                            <Run Text="Đảm bảo iPhone và máy tính cùng mạng Wi-Fi và WDA đang mở cổng 8100."/>
+                        </TextBlock>
+
+                        <Border Background="#FF16181D" BorderBrush="{StaticResource PanelEdge}" BorderThickness="1"
+                                CornerRadius="6" Padding="10,8">
+                            <StackPanel>
+                                <TextBlock Text="Kết quả kiểm tra cổng WDA 8100:" FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextDim}" Margin="0,0,0,4"/>
+                                <TextBlock x:Name="TxtProbeSummary" Text="Chưa tìm thấy dịch vụ WDA trên cổng 8100."
+                                           FontFamily="Consolas" FontSize="11" Foreground="{StaticResource Bad}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Bottom Action Bar -->
+        <Border Grid.Row="2" BorderBrush="{StaticResource PanelEdge}" BorderThickness="0,1,0,0" Padding="0,12,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                    <TextBlock x:Name="TxtStatus" Text="Chưa kết nối cổng điều khiển WDA"
+                               Foreground="{StaticResource Bad}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="BtnRetry" Content="🔍 Dò tìm &amp; Kết nối lại" Click="OnRetryClick"
+                            Background="{StaticResource Accent}" Foreground="White" Width="180" Padding="14,8"/>
+                    <Button x:Name="BtnClose" Content="Đóng" Click="OnCloseClick" Width="80" Padding="14,8"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
