@@ -155,6 +155,9 @@ public sealed class AudioJitterBuffer : IDisposable
             Write(pcmData, pcmData.Length, isPooled: false);
     }
 
+    private DateTime _lastReadTime = DateTime.UtcNow;
+    private const int SustainedSilenceMs = 250;
+
     /// <summary>
     /// Retrieve the next frame in sequence for the hardware audio pump.
     /// Returns true if a frame is ready; false if buffer underrun.
@@ -163,14 +166,21 @@ public sealed class AudioJitterBuffer : IDisposable
     {
         lock (_lock)
         {
-            if (_disposed || !_primed || _queue.Count == 0)
+            if (_disposed || !_primed)
             {
                 frame = default;
-                if (_queue.Count == 0 && _primed)
+                return false;
+            }
+
+            if (_queue.Count == 0)
+            {
+                frame = default;
+                // Only unprime if there has been genuine sustained silence (>250ms),
+                // not a momentary 5-10ms WiFi packet arrival gap
+                if ((DateTime.UtcNow - _lastReadTime).TotalMilliseconds > SustainedSilenceMs)
                 {
-                    // Buffer drained completely — enter re-priming state
                     _primed = false;
-                    Log.Debug(Tag, "Jitter buffer underrun — pausing for re-priming");
+                    Log.Debug(Tag, "Sustained audio gap >250ms — pausing for re-priming");
                 }
                 return false;
             }
@@ -178,6 +188,7 @@ public sealed class AudioJitterBuffer : IDisposable
             frame = _queue.Dequeue();
             _recentSeqs.Remove((ushort)(frame.SequenceNumber - 32));
             _nextExpectedSeq = (ushort)(frame.SequenceNumber + 1);
+            _lastReadTime = DateTime.UtcNow;
             Interlocked.Increment(ref _read);
             return true;
         }

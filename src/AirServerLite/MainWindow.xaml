@@ -1,11 +1,15 @@
 <Window x:Class="AirServerLite.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="AirServer-LITE" Height="880" Width="680"
         Background="{StaticResource Bg}"
         Icon="pack://application:,,,/Assets/app.ico"
         UseLayoutRounding="True"
-        TextOptions.TextFormattingMode="Display">
+        TextOptions.TextFormattingMode="Display"
+        AllowDrop="True"
+        Drop="OnWindowDrop"
+        DragOver="OnWindowDragOver">
 
     <Grid>
         <Grid.RowDefinitions>
@@ -20,13 +24,8 @@
                 BorderBrush="{StaticResource PanelEdge}" BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal">
                 <Button x:Name="BtnStart" Content="Start receiver" Click="OnStartStop" Width="105"/>
-                <Rectangle Width="1" Fill="{StaticResource PanelEdge}" Margin="4,2,8,2"/>
-                <Button x:Name="BtnHome" Content="Home" Click="OnHome"/>
-                <Button x:Name="BtnVolUp" Content="Vol +" Click="OnVolumeUp"/>
-                <Button x:Name="BtnVolDown" Content="Vol -" Click="OnVolumeDown"/>
-                <Button x:Name="BtnLock" Content="Lock" Click="OnLock"/>
-                <Rectangle Width="1" Fill="{StaticResource PanelEdge}" Margin="4,2,8,2"/>
-                <CheckBox x:Name="ChkInput" Content="Mouse control"
+                <Rectangle Width="1" Fill="{StaticResource PanelEdge}" Margin="8,2,8,2"/>
+                <CheckBox x:Name="ChkInput" Content="Remote control"
                           Foreground="{StaticResource Text}" VerticalAlignment="Center"
                           Click="OnInputToggled"/>
                 <Rectangle Width="1" Fill="{StaticResource PanelEdge}" Margin="8,2,8,2"/>
@@ -35,7 +34,9 @@
                         VerticalAlignment="Center" ValueChanged="OnVolumeChanged"/>
                 <Rectangle Width="1" Fill="{StaticResource PanelEdge}" Margin="8,2,8,2"/>
                 <Button x:Name="BtnFullscreen" Content="⛶ Fullscreen" Click="OnFullscreenClicked"/>
-                <Button x:Name="BtnQuickPlay" Content="▶ YouTube" Click="OnQuickPlayClicked" Margin="6,0,0,0"/>
+                <Button x:Name="BtnTvCode" Content="📺 Ghép nối TV" Click="OnTvCodeClicked" Margin="6,0,0,0" ToolTip="Mở giao diện YouTube TV có mã số kết nối trực tiếp với điện thoại"/>
+                <Button x:Name="BtnQuickPlay" Content="▶ Link YouTube" Click="OnQuickPlayClicked" Margin="6,0,0,0"/>
+                <Button x:Name="BtnStopMedia" Content="⏹ Dừng phát" Click="OnStopMediaClicked" Visibility="Collapsed" Margin="6,0,0,0"/>
             </StackPanel>
         </Border>
 
@@ -50,8 +51,13 @@
                 SizeChanged="OnVideoHostSizeChanged">
             <Grid>
                 <Image x:Name="VideoImage" Stretch="Uniform"
-                       RenderOptions.BitmapScalingMode="LowQuality"
-                       SnapsToDevicePixels="True"/>
+                       RenderOptions.BitmapScalingMode="Linear"
+                       RenderOptions.EdgeMode="Aliased"
+                       SnapsToDevicePixels="True"
+                       UseLayoutRounding="True"/>
+
+                <wv2:WebView2 x:Name="WebPlayer" Visibility="Collapsed"
+                              HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
 
                 <StackPanel x:Name="Placeholder" HorizontalAlignment="Center"
                             VerticalAlignment="Center" Margin="40">
@@ -75,6 +81,9 @@
                         BorderBrush="{StaticResource PanelEdge}" BorderThickness="1"
                         Visibility="Collapsed">
                     <StackPanel Orientation="Horizontal">
+                        <Button x:Name="BtnHudPlayPause" Content="⏯ Phát/Tạm dừng" Click="OnHudPlayPause" Margin="0,0,6,0"/>
+                        <Button x:Name="BtnHudStopMedia" Content="⏹ Dừng Media" Click="OnHudStopMedia" Margin="0,0,8,0"/>
+                        <Rectangle Width="1" Fill="{StaticResource PanelEdge}" Margin="0,2,8,2"/>
                         <Button x:Name="BtnHudExitFs" Content="Thoát Fullscreen (Esc/F11)" Click="OnExitFullscreen" Margin="0,0,10,0"/>
                         <Rectangle Width="1" Fill="{StaticResource PanelEdge}" Margin="0,2,10,2"/>
                         <TextBlock Text="🔊" Foreground="{StaticResource Text}" VerticalAlignment="Center" Margin="0,0,6,0"/>

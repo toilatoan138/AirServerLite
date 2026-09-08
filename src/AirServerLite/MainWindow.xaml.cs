@@ -1,5 +1,8 @@
 using System.ComponentModel;
+using System.IO;
 using System.Net;
+using System.Reflection;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -13,6 +16,7 @@ using AirServerLite.Discovery;
 using AirServerLite.Input;
 using AirServerLite.UI;
 using AirServerLite.Video;
+using Microsoft.Web.WebView2.Core;
 
 namespace AirServerLite;
 
@@ -25,6 +29,7 @@ public partial class MainWindow : Window
 
     private DeviceIdentity? _identity;
     private MdnsAdvertiser? _mdns;
+    private DialServer? _dialServer;
     private AirPlayServer? _server;
     private VideoPipeline? _pipeline;
     private WriteableBitmap? _bitmap;
@@ -44,6 +49,9 @@ public partial class MainWindow : Window
     private System.Windows.Threading.DispatcherTimer? _hudTimer;
     private bool _isLandscape;
     private float _currentVolume = 1.0f;
+
+    private bool _isWebPlayerActive;
+    private AirPlay.MediaSession? _activeMediaSession;
 
     public MainWindow()
     {
@@ -76,6 +84,11 @@ public partial class MainWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // Ensure full Direct3D hardware acceleration is active
+        System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.Default;
+        int renderingTier = RenderCapability.Tier >> 16;
+        Log.Info(LogTag, $"Direct3D GPU Hardware Rendering Tier: {renderingTier} (Tier 2 = Full Hardware Acceleration)");
+
         VideoHost.Focus();
         RunPreflight();
     }
@@ -154,6 +167,18 @@ public partial class MainWindow : Window
                                        _settings.AdvertiseRaop);
             _mdns.Start();
 
+            try
+            {
+                _dialServer = new DialServer(nic.Address, _settings.DeviceName + " (YouTube)", _identity.DeviceId);
+                _dialServer.YouTubeCastRequested += OnYouTubeCastRequested;
+                _dialServer.YouTubeCastStopped += OnYouTubeCastStopped;
+                _dialServer.Start();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(LogTag, "DIAL server failed to start: " + ex.Message);
+            }
+
             _running = true;
             BtnStart.Content = "Stop receiver";
             SetStatus($"Advertising on {nic.Address} - waiting for a device", ready: true);
@@ -172,6 +197,14 @@ public partial class MainWindow : Window
     {
         try
         {
+            try
+            {
+                _dialServer?.Stop();
+                _dialServer?.Dispose();
+            }
+            catch { }
+            _dialServer = null;
+
             _mdns?.Dispose();
             _server?.Dispose();
             _pipeline?.Dispose();
@@ -185,6 +218,7 @@ public partial class MainWindow : Window
         }
         finally
         {
+            _dialServer = null;
             _mdns = null;
             _server = null;
             _pipeline = null;
@@ -195,6 +229,7 @@ public partial class MainWindow : Window
             _running = false;
 
             VideoImage.Source = null;
+            ShowWebPlayer(false);
             Placeholder.Visibility = Visibility.Visible;
             BtnStart.Content = "Start receiver";
             StatsText.Text = "";
@@ -210,29 +245,240 @@ public partial class MainWindow : Window
             _lastClientAddress = _server.LastClientAddress;
         }
         _pipeline?.Attach(receiver);
+
+        receiver.Closed += reason =>
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!_isWebPlayerActive)
+                {
+                    _bitmap = null;
+                    VideoImage.Source = null;
+                    VideoImage.Visibility = Visibility.Collapsed;
+                    Placeholder.Visibility = Visibility.Visible;
+                }
+                SetStatus(_running ? "Ready - waiting for a device" : "Stopped", ready: _running);
+            });
+        };
+
         Dispatcher.BeginInvoke(() =>
         {
-            Placeholder.Visibility = Visibility.Collapsed;
+            if (!_isWebPlayerActive)
+            {
+                Placeholder.Visibility = Visibility.Collapsed;
+                VideoImage.Visibility = Visibility.Visible;
+            }
             SetStatus("Mirroring", ready: true);
         });
     }
 
-    private void OnMediaPlayStarted(AirPlay.MediaSession session)
+    private async Task EnsureWebView2InitializedAsync()
+    {
+        if (WebPlayer.CoreWebView2 != null) return;
+
+        try
+        {
+            var userDataFolder = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "AirServerLite", "webview2");
+            Directory.CreateDirectory(userDataFolder);
+
+            var env = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
+            await WebPlayer.EnsureCoreWebView2Async(env);
+
+            if (WebPlayer.CoreWebView2 != null)
+            {
+                WebPlayer.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                WebPlayer.CoreWebView2.Settings.AreDevToolsEnabled = false;
+                WebPlayer.CoreWebView2.Settings.IsZoomControlEnabled = false;
+            }
+
+            WebPlayer.WebMessageReceived += OnWebPlayerMessageReceived;
+
+            var htmlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "youtube_player.html");
+            if (!File.Exists(htmlPath))
+            {
+                try
+                {
+                    var cacheDir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "AirServerLite", "Assets");
+                    Directory.CreateDirectory(cacheDir);
+                    var cachedPath = Path.Combine(cacheDir, "youtube_player.html");
+
+                    using var stream = Assembly.GetExecutingAssembly()
+                        .GetManifestResourceStream("AirServerLite.Assets.youtube_player.html");
+                    if (stream != null)
+                    {
+                        using var fs = File.Create(cachedPath);
+                        stream.CopyTo(fs);
+                        htmlPath = cachedPath;
+                        Log.Info(LogTag, "Extracted embedded youtube_player.html to " + htmlPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn(LogTag, "Failed to extract embedded youtube_player.html: " + ex.Message);
+                }
+            }
+
+            if (File.Exists(htmlPath))
+            {
+                WebPlayer.Source = new Uri(htmlPath);
+            }
+            else
+            {
+                Log.Warn(LogTag, "youtube_player.html not found at " + htmlPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(LogTag, "Failed to initialize WebView2", ex);
+        }
+    }
+
+    private void ShowWebPlayer(bool show)
+    {
+        _isWebPlayerActive = show;
+        if (show)
+        {
+            WebPlayer.Visibility = Visibility.Visible;
+            VideoImage.Visibility = Visibility.Collapsed;
+            Placeholder.Visibility = Visibility.Collapsed;
+            BtnStopMedia.Visibility = Visibility.Visible;
+            BtnHudStopMedia.Visibility = Visibility.Visible;
+            BtnHudPlayPause.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            WebPlayer.Visibility = Visibility.Collapsed;
+            BtnStopMedia.Visibility = Visibility.Collapsed;
+            BtnHudStopMedia.Visibility = Visibility.Collapsed;
+            BtnHudPlayPause.Visibility = Visibility.Collapsed;
+
+            if (WebPlayer.CoreWebView2 != null)
+            {
+                _ = WebPlayer.ExecuteScriptAsync("pauseMedia()");
+            }
+
+            if (_pipeline != null && VideoImage.Source != null)
+            {
+                VideoImage.Visibility = Visibility.Visible;
+                Placeholder.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                VideoImage.Visibility = Visibility.Collapsed;
+                Placeholder.Visibility = Visibility.Visible;
+            }
+        }
+    }
+
+    private async void OnYouTubeCastRequested(YouTubeCastLaunchArgs args)
+    {
+        await Dispatcher.InvokeAsync(async () =>
+        {
+            await EnsureWebView2InitializedAsync();
+            ShowWebPlayer(true);
+
+            if (!string.IsNullOrEmpty(args.VideoId))
+            {
+                SetStatus($"Đang phát YouTube: {args.VideoId}", ready: true);
+                var startSec = args.StartSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                await WebPlayer.ExecuteScriptAsync($"loadYouTubeVideo('{args.VideoId}', {startSec})");
+            }
+            else if (!string.IsNullOrEmpty(args.PairingCode))
+            {
+                SetStatus($"YouTube TV: {args.PairingCode}", ready: true);
+                WebPlayer.Source = new Uri("https://www.youtube.com/tv");
+            }
+            else
+            {
+                SetStatus("Đang kết nối YouTube Cast", ready: true);
+            }
+        });
+    }
+
+    private void OnYouTubeCastStopped()
     {
         Dispatcher.BeginInvoke(() =>
         {
-            Placeholder.Visibility = Visibility.Collapsed;
-            SetStatus($"Media Streaming: {session.ClientProcName ?? "YouTube"}", ready: true);
-            Log.Info(LogTag, $"AirPlay Media streaming: {session.ContentLocation}");
+            ShowWebPlayer(false);
+            SetStatus("Đã dừng YouTube Cast", ready: true);
+        });
+    }
+
+    private async void OnMediaPlayStarted(AirPlay.MediaSession session)
+    {
+        _activeMediaSession = session;
+        await Dispatcher.InvokeAsync(async () =>
+        {
+            await EnsureWebView2InitializedAsync();
+            ShowWebPlayer(true);
+
+            var videoId = DialServer.ExtractVideoId(session.ContentLocation);
+            if (!string.IsNullOrEmpty(videoId))
+            {
+                SetStatus($"AirPlay YouTube: {videoId}", ready: true);
+                var startSec = session.PositionSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                await WebPlayer.ExecuteScriptAsync($"loadYouTubeVideo('{videoId}', {startSec})");
+            }
+            else if (Uri.TryCreate(session.ContentLocation, UriKind.Absolute, out var uri))
+            {
+                SetStatus($"AirPlay Media: {uri.Host}", ready: true);
+                WebPlayer.Source = uri;
+            }
+            else
+            {
+                SetStatus("AirPlay Media đang phát", ready: true);
+            }
         });
     }
 
     private void OnMediaPlayStopped()
     {
+        _activeMediaSession = null;
         Dispatcher.BeginInvoke(() =>
         {
-            SetStatus("Media stopped", ready: true);
+            ShowWebPlayer(false);
+            SetStatus("Đã dừng AirPlay Media", ready: true);
         });
+    }
+
+    private void OnWebPlayerMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(e.WebMessageAsJson);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("type", out var typeElem))
+            {
+                var type = typeElem.GetString();
+                if (type == "timeUpdate" || type == "stateChange")
+                {
+                    if (root.TryGetProperty("currentTime", out var curElem) &&
+                        root.TryGetProperty("duration", out var durElem))
+                    {
+                        var cur = curElem.GetSingle();
+                        var dur = durElem.GetSingle();
+                        if (_activeMediaSession != null)
+                        {
+                            _activeMediaSession.PositionSeconds = cur;
+                            if (dur > 0) _activeMediaSession.DurationSeconds = dur;
+                        }
+                    }
+                    if (type == "stateChange" && root.TryGetProperty("state", out var stateElem))
+                    {
+                        var state = stateElem.GetString();
+                        if (_activeMediaSession != null)
+                        {
+                            _activeMediaSession.Rate = state == "playing" ? 1.0f : 0.0f;
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
     }
 
     // ---------------------------------------------------------------- input wiring
@@ -276,12 +522,12 @@ public partial class MainWindow : Window
             }
 
             var candidates = GetWdaProbeUrls();
-            Log.Info(LogTag, "Probing WDA at: " + string.Join(", ", candidates));
+            Log.Debug(LogTag, "Probing WDA at: " + string.Join(", ", candidates));
 
             var foundUrl = await WdaClient.ProbeCandidatesAsync(candidates, TimeSpan.FromMilliseconds(1500), ct);
             if (foundUrl is null)
             {
-                Log.Warn(LogTag, "No WDA server answered on port " + _settings.Input.DevicePort);
+                Log.Debug(LogTag, "No WDA server answered on port " + _settings.Input.DevicePort + " (reverse mouse control inactive)");
                 return false;
             }
 
@@ -412,24 +658,7 @@ public partial class MainWindow : Window
             if (_bitmap is null || _bitmap.PixelWidth != frame.Width ||
                 _bitmap.PixelHeight != frame.Height)
             {
-                var newIsLandscape = frame.Width > frame.Height;
-                if (!_isFullscreen && newIsLandscape != _isLandscape)
-                {
-                    _isLandscape = newIsLandscape;
-                    if (_isLandscape && Width < Height)
-                    {
-                        var temp = Width;
-                        Width = Math.Max(Height, 880);
-                        Height = Math.Max(temp, 560);
-                    }
-                    else if (!_isLandscape && Width > Height)
-                    {
-                        var temp = Width;
-                        Width = Math.Min(Height, 680);
-                        Height = Math.Max(temp, 880);
-                    }
-                }
-
+                _isLandscape = frame.Width > frame.Height;
                 _bitmap = new WriteableBitmap(frame.Width, frame.Height, 96, 96,
                                               PixelFormats.Bgra32, null);
                 VideoImage.Source = _bitmap;
@@ -438,8 +667,32 @@ public partial class MainWindow : Window
                 Log.Info(LogTag, $"Display surface {frame.Width}x{frame.Height} (Landscape: {_isLandscape})");
             }
 
-            _bitmap.WritePixels(new Int32Rect(0, 0, frame.Width, frame.Height),
-                                frame.Pixels, frame.Stride, 0);
+            if (!_isWebPlayerActive)
+            {
+                if (VideoImage.Visibility != Visibility.Visible)
+                    VideoImage.Visibility = Visibility.Visible;
+                if (Placeholder.Visibility != Visibility.Collapsed)
+                    Placeholder.Visibility = Visibility.Collapsed;
+            }
+
+            _bitmap.Lock();
+            try
+            {
+                unsafe
+                {
+                    fixed (byte* src = frame.Pixels)
+                    {
+                        Buffer.MemoryCopy(src, (void*)_bitmap.BackBuffer,
+                                          (long)_bitmap.BackBufferStride * frame.Height,
+                                          (long)frame.Stride * frame.Height);
+                    }
+                }
+                _bitmap.AddDirtyRect(new Int32Rect(0, 0, frame.Width, frame.Height));
+            }
+            finally
+            {
+                _bitmap.Unlock();
+            }
         }
         catch (Exception ex)
         {
@@ -518,18 +771,69 @@ public partial class MainWindow : Window
 
     private void OnVolumeChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        _currentVolume = (float)e.NewValue;
-        if (SliderHudVolume != null && Math.Abs(SliderHudVolume.Value - _currentVolume) > 0.01)
-            SliderHudVolume.Value = _currentVolume;
-        _server?.BroadcastAudioVolume(_currentVolume);
+        ApplyVolume((float)e.NewValue);
     }
 
     private void OnHudVolumeChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        _currentVolume = (float)e.NewValue;
+        ApplyVolume((float)e.NewValue);
+    }
+
+    private void ApplyVolume(float volume)
+    {
+        _currentVolume = Math.Clamp(volume, 0.0f, 1.0f);
+        if (SliderHudVolume != null && Math.Abs(SliderHudVolume.Value - _currentVolume) > 0.01)
+            SliderHudVolume.Value = _currentVolume;
         if (SliderVolume != null && Math.Abs(SliderVolume.Value - _currentVolume) > 0.01)
             SliderVolume.Value = _currentVolume;
         _server?.BroadcastAudioVolume(_currentVolume);
+
+        if (WebPlayer?.CoreWebView2 != null)
+        {
+            var volStr = _currentVolume.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            _ = WebPlayer.ExecuteScriptAsync($"setMediaVolume({volStr})");
+        }
+    }
+
+    private void OnStopMediaClicked(object sender, RoutedEventArgs e)
+    {
+        ShowWebPlayer(false);
+        _dialServer?.SetAppRunning(false);
+    }
+
+    private void OnHudStopMedia(object sender, RoutedEventArgs e)
+    {
+        ShowWebPlayer(false);
+        _dialServer?.SetAppRunning(false);
+    }
+
+    private void OnHudPlayPause(object sender, RoutedEventArgs e)
+    {
+        if (WebPlayer?.CoreWebView2 != null)
+        {
+            _ = WebPlayer.ExecuteScriptAsync("if(player && typeof player.getPlayerState === 'function') { if(player.getPlayerState() === 1) pauseMedia(); else playMedia(); }");
+        }
+    }
+
+    public async Task OpenYouTubeTvAsync()
+    {
+        await EnsureWebView2InitializedAsync();
+        if (WebPlayer?.CoreWebView2 != null)
+        {
+            WebPlayer.CoreWebView2.Settings.UserAgent =
+                "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/4.0 Chrome/76.0.3809.146 TV Safari/537.36";
+        }
+        ShowWebPlayer(true);
+        SetStatus("YouTube TV (Mở app YouTube > Cài đặt > Xem trên TV > Nhập mã TV)", ready: true);
+        if (WebPlayer != null)
+        {
+            WebPlayer.Source = new Uri("https://www.youtube.com/tv");
+        }
+    }
+
+    private async void OnTvCodeClicked(object sender, RoutedEventArgs e)
+    {
+        await OpenYouTubeTvAsync();
     }
 
     private void OnQuickPlayClicked(object sender, RoutedEventArgs e)
@@ -542,8 +846,8 @@ public partial class MainWindow : Window
         var inputWindow = new Window
         {
             Title = "Phát YouTube / Media URL",
-            Width = 460,
-            Height = 170,
+            Width = 490,
+            Height = 220,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = this,
             Background = (Brush)FindResource("Bg"),
@@ -553,45 +857,75 @@ public partial class MainWindow : Window
         var sp = new StackPanel { Margin = new Thickness(16) };
         var label = new TextBlock
         {
-            Text = "Dán link YouTube (hoặc video URL) để mở:",
+            Text = "Dán link YouTube (hoặc video ID) để phát ngay trên màn hình:",
             Foreground = (Brush)FindResource("Text"),
             Margin = new Thickness(0, 0, 0, 8),
             FontWeight = FontWeights.SemiBold
         };
         var txtUrl = new TextBox
         {
-            Margin = new Thickness(0, 0, 0, 12),
+            Margin = new Thickness(0, 0, 0, 14),
             Padding = new Thickness(6, 4, 6, 4),
             Background = (Brush)FindResource("Panel"),
             Foreground = (Brush)FindResource("Text")
         };
         var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        var btnPlay = new Button { Content = "Mở video", Width = 90, Margin = new Thickness(0, 0, 8, 0) };
+        var btnOpenFile = new Button { Content = "📂 Chọn video từ máy", Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(10, 4, 10, 4) };
+        var btnTvMode = new Button { Content = "📺 YouTube TV (Mã TV)", Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(10, 4, 10, 4) };
+        var btnPlay = new Button { Content = "▶ Phát video", Width = 95, Margin = new Thickness(0, 0, 8, 0) };
         var btnCancel = new Button { Content = "Đóng", Width = 70 };
 
-        btnPlay.Click += (s, ev) =>
+        btnOpenFile.Click += async (s, ev) =>
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Chọn file video để phát",
+                Filter = "Video Files|*.mp4;*.mkv;*.webm;*.mov;*.avi;*.m4v;*.ts|All Files|*.*"
+            };
+            if (dlg.ShowDialog() == true)
+            {
+                inputWindow.Close();
+                await PlayLocalVideoFileAsync(dlg.FileName);
+            }
+        };
+
+        btnPlay.Click += async (s, ev) =>
         {
             var url = txtUrl.Text.Trim();
             if (!string.IsNullOrWhiteSpace(url))
             {
-                try
-                {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = url,
-                        UseShellExecute = true
-                    });
-                    Log.Info(LogTag, "Opened YouTube URL: " + url);
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn(LogTag, "Could not launch URL: " + ex.Message);
-                }
                 inputWindow.Close();
+                await EnsureWebView2InitializedAsync();
+                ShowWebPlayer(true);
+
+                var videoId = DialServer.ExtractVideoId(url);
+                if (!string.IsNullOrEmpty(videoId))
+                {
+                    SetStatus($"Đang phát YouTube: {videoId}", ready: true);
+                    await WebPlayer.ExecuteScriptAsync($"loadYouTubeVideo('{videoId}', 0)");
+                }
+                else if (File.Exists(url) && DialServer.IsSupportedVideoFile(url))
+                {
+                    await PlayLocalVideoFileAsync(url);
+                }
+                else if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                {
+                    SetStatus($"Đang phát: {uri.Host}", ready: true);
+                    WebPlayer.Source = uri;
+                }
             }
         };
+
+        btnTvMode.Click += async (s, ev) =>
+        {
+            inputWindow.Close();
+            await OpenYouTubeTvAsync();
+        };
+
         btnCancel.Click += (s, ev) => inputWindow.Close();
 
+        btnPanel.Children.Add(btnOpenFile);
+        btnPanel.Children.Add(btnTvMode);
         btnPanel.Children.Add(btnPlay);
         btnPanel.Children.Add(btnCancel);
         sp.Children.Add(label);
@@ -599,6 +933,47 @@ public partial class MainWindow : Window
         sp.Children.Add(btnPanel);
         inputWindow.Content = sp;
         inputWindow.ShowDialog();
+    }
+
+    public async Task PlayLocalVideoFileAsync(string filePath)
+    {
+        if (!File.Exists(filePath)) return;
+        await EnsureWebView2InitializedAsync();
+        ShowWebPlayer(true);
+        SetStatus($"Đang phát file: {Path.GetFileName(filePath)}", ready: true);
+        var fileUri = new Uri(filePath).AbsoluteUri;
+        if (WebPlayer != null)
+        {
+            WebPlayer.Source = new Uri(fileUri);
+        }
+    }
+
+    private void OnWindowDragOver(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            var files = e.Data.GetData(DataFormats.FileDrop) as string[];
+            if (files != null && files.Length > 0 && DialServer.IsSupportedVideoFile(files[0]))
+            {
+                e.Effects = DragDropEffects.Copy;
+                e.Handled = true;
+                return;
+            }
+        }
+        e.Effects = DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void OnWindowDrop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            var files = e.Data.GetData(DataFormats.FileDrop) as string[];
+            if (files != null && files.Length > 0 && DialServer.IsSupportedVideoFile(files[0]))
+            {
+                await PlayLocalVideoFileAsync(files[0]);
+            }
+        }
     }
 
     // ---------------------------------------------------------------- pointer & keys

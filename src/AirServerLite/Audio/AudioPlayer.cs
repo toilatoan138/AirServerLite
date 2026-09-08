@@ -187,6 +187,19 @@ public sealed class AudioPlayer : IDisposable
         }
     }
 
+    private const int TargetInFlightBuffers = 4; // ~45ms audio queued in waveOut driver
+
+    private int CountInFlightBuffers()
+    {
+        int inFlight = 0;
+        for (int i = 0; i < BufferCount; i++)
+        {
+            if ((_headers[i].dwFlags & WHDR_INQUEUE) != 0)
+                inFlight++;
+        }
+        return inFlight;
+    }
+
     private void PumpLoop()
     {
         var ct = _cts.Token;
@@ -211,38 +224,45 @@ public sealed class AudioPlayer : IDisposable
                     continue;
                 }
 
-                // Find a free waveOut buffer slot
+                // Check how many buffers are currently in the sound card driver queue
+                int inFlight;
                 int chosen = -1;
                 lock (_lock)
                 {
                     if (_disposed || _hWaveOut == IntPtr.Zero) break;
 
-                    for (int i = 0; i < BufferCount; i++)
-                    {
-                        var candidate = (_nextBuffer + i) % BufferCount;
-                        if ((_headers[candidate].dwFlags & WHDR_INQUEUE) == 0)
-                        {
-                            chosen = candidate;
-                            break;
-                        }
-                    }
+                    inFlight = CountInFlightBuffers();
 
-                    if (chosen < 0)
+                    // Only take a buffer slot if driver queue is below target depth
+                    if (inFlight < TargetInFlightBuffers)
                     {
                         for (int i = 0; i < BufferCount; i++)
                         {
-                            if ((_headers[i].dwFlags & WHDR_DONE) != 0)
+                            var candidate = (_nextBuffer + i) % BufferCount;
+                            if ((_headers[candidate].dwFlags & WHDR_INQUEUE) == 0)
                             {
-                                chosen = i;
+                                chosen = candidate;
                                 break;
+                            }
+                        }
+
+                        if (chosen < 0)
+                        {
+                            for (int i = 0; i < BufferCount; i++)
+                            {
+                                if ((_headers[i].dwFlags & WHDR_DONE) != 0)
+                                {
+                                    chosen = i;
+                                    break;
+                                }
                             }
                         }
                     }
                 }
 
-                if (chosen < 0)
+                // If driver queue has enough audio ahead, wait for hardware clock tick (_hEvent)
+                if (chosen < 0 || inFlight >= TargetInFlightBuffers)
                 {
-                    // All buffers queued in sound card — wait for hardware to signal completion
                     WaitForSingleObject(_hEvent, 10);
                     continue;
                 }
