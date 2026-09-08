@@ -98,15 +98,33 @@ public sealed class WdaClient : IDisposable
 
         var tasks = validUrls.Select(u => ProbeUrlAsync(u, timeout, ct)).ToList();
 
+        string? found = null;
         while (tasks.Count > 0)
         {
             var completed = await Task.WhenAny(tasks).ConfigureAwait(false);
             tasks.Remove(completed);
-            var res = await completed.ConfigureAwait(false);
-            if (res != null) return res;
+            try
+            {
+                var res = await completed.ConfigureAwait(false);
+                if (res != null && found == null)
+                {
+                    found = res;
+                    break;
+                }
+            }
+            catch { }
         }
 
-        return null;
+        if (tasks.Count > 0)
+        {
+            try
+            {
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+            }
+            catch { }
+        }
+
+        return found;
     }
 
     public async Task<bool> ConnectAsync(CancellationToken ct = default)

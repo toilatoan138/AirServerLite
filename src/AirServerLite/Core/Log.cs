@@ -69,6 +69,8 @@ public static class Log
     public static void Debug(string tag, string msg) => Write(LogLevel.Debug, tag, msg);
     public static void Info(string tag, string msg) => Write(LogLevel.Info, tag, msg);
     public static void Warn(string tag, string msg) => Write(LogLevel.Warn, tag, msg);
+    public static void Warn(string tag, string msg, Exception ex) =>
+        Write(LogLevel.Warn, tag, msg + " :: " + ex.GetType().Name + ": " + ex.Message);
     public static void Error(string tag, string msg) => Write(LogLevel.Error, tag, msg);
 
     public static void Error(string tag, string msg, Exception ex) =>

@@ -292,7 +292,14 @@ public partial class MainWindow : Window
             _iproxy ??= new IProxyHost(_settings.Input);
             if (_settings.Input.AutoStartIProxy)
             {
-                _ = _iproxy.EnsureStartedAsync(ct);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _iproxy.EnsureStartedAsync(ct).ConfigureAwait(false);
+                    }
+                    catch { }
+                }, ct);
             }
 
             var candidates = GetWdaProbeUrls();

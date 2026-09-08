@@ -119,10 +119,22 @@ public sealed class IProxyHost : IDisposable
     {
         try
         {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(300);
             using var c = new TcpClient();
-            var connect = c.ConnectAsync("127.0.0.1", port, ct).AsTask();
-            var done = await Task.WhenAny(connect, Task.Delay(300, ct)).ConfigureAwait(false);
-            return done == connect && c.Connected;
+            try
+            {
+                await c.ConnectAsync("127.0.0.1", port, cts.Token).ConfigureAwait(false);
+                return c.Connected;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
         catch { return false; }
     }

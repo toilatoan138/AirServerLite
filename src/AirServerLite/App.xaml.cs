@@ -27,8 +27,21 @@ public partial class App : Application
 
         TaskScheduler.UnobservedTaskException += (_, args) =>
         {
-            Log.Error("app", "Unobserved task exception", args.Exception);
             args.SetObserved();
+            var flattened = args.Exception.Flatten();
+            var allAborted = flattened.InnerExceptions.All(ex =>
+                ex is OperationCanceledException ||
+                ex is System.IO.IOException ioEx && ioEx.Message.Contains("aborted", StringComparison.OrdinalIgnoreCase) ||
+                ex is System.Net.Sockets.SocketException sockEx && sockEx.SocketErrorCode == System.Net.Sockets.SocketError.OperationAborted);
+
+            if (allAborted)
+            {
+                Log.Debug("app", $"Suppressed unobserved aborted socket task: {flattened.InnerException?.Message}");
+            }
+            else
+            {
+                Log.Warn("app", "Unobserved task exception", args.Exception);
+            }
         };
 
         // Must run before anything probes FairPlay or FFmpeg: on a single-file build this is
