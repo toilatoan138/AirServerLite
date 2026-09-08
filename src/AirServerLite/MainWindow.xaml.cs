@@ -37,6 +37,14 @@ public partial class MainWindow : Window
     private bool _running;
     private volatile bool _frameWaiting;
 
+    private bool _isFullscreen;
+    private WindowStyle _prevWindowStyle = WindowStyle.SingleBorderWindow;
+    private WindowState _prevWindowState = WindowState.Normal;
+    private Rect _prevBounds;
+    private System.Windows.Threading.DispatcherTimer? _hudTimer;
+    private bool _isLandscape;
+    private float _currentVolume = 1.0f;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -50,6 +58,13 @@ public partial class MainWindow : Window
 
         Loaded += OnLoaded;
         Closing += OnClosing;
+
+        _hudTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
+        _hudTimer.Tick += (s, e) =>
+        {
+            _hudTimer.Stop();
+            if (_isFullscreen) OverlayHud.Visibility = Visibility.Collapsed;
+        };
 
         // Pull frames on the WPF render tick instead of a timer: it is already synchronised
         // with the compositor, so a frame drawn here is on screen at the very next vblank
@@ -370,12 +385,30 @@ public partial class MainWindow : Window
             if (_bitmap is null || _bitmap.PixelWidth != frame.Width ||
                 _bitmap.PixelHeight != frame.Height)
             {
+                var newIsLandscape = frame.Width > frame.Height;
+                if (!_isFullscreen && newIsLandscape != _isLandscape)
+                {
+                    _isLandscape = newIsLandscape;
+                    if (_isLandscape && Width < Height)
+                    {
+                        var temp = Width;
+                        Width = Math.Max(Height, 880);
+                        Height = Math.Max(temp, 560);
+                    }
+                    else if (!_isLandscape && Width > Height)
+                    {
+                        var temp = Width;
+                        Width = Math.Min(Height, 680);
+                        Height = Math.Max(temp, 880);
+                    }
+                }
+
                 _bitmap = new WriteableBitmap(frame.Width, frame.Height, 96, 96,
                                               PixelFormats.Bgra32, null);
                 VideoImage.Source = _bitmap;
                 _mapper.UpdateVideoSize(frame.Width, frame.Height);
                 Placeholder.Visibility = Visibility.Collapsed;
-                Log.Info(LogTag, $"Display surface {frame.Width}x{frame.Height}");
+                Log.Info(LogTag, $"Display surface {frame.Width}x{frame.Height} (Landscape: {_isLandscape})");
             }
 
             _bitmap.WritePixels(new Int32Rect(0, 0, frame.Width, frame.Height),
@@ -390,10 +423,167 @@ public partial class MainWindow : Window
     private void OnVideoHostSizeChanged(object sender, SizeChangedEventArgs e)
         => _mapper.UpdateControlSize(e.NewSize.Width, e.NewSize.Height);
 
+    // ---------------------------------------------------------------- fullscreen & cinema
+
+    private void ToggleFullscreen(bool? enable = null)
+    {
+        var target = enable ?? !_isFullscreen;
+        if (target == _isFullscreen) return;
+        _isFullscreen = target;
+
+        if (_isFullscreen)
+        {
+            _prevWindowStyle = WindowStyle;
+            _prevWindowState = WindowState;
+            _prevBounds = new Rect(Left, Top, ActualWidth, ActualHeight);
+
+            ToolbarBorder.Visibility = Visibility.Collapsed;
+            StatusBarBorder.Visibility = Visibility.Collapsed;
+            LogExpander.Visibility = Visibility.Collapsed;
+
+            WindowStyle = WindowStyle.None;
+            WindowState = WindowState.Maximized;
+
+            BtnFullscreen.Content = "✕ Exit FS";
+            ShowHudBriefly();
+            Log.Info(LogTag, "Entered Cinema Fullscreen mode");
+        }
+        else
+        {
+            OverlayHud.Visibility = Visibility.Collapsed;
+            _hudTimer?.Stop();
+
+            WindowStyle = _prevWindowStyle;
+            WindowState = _prevWindowState;
+            if (_prevBounds.Width > 100 && _prevBounds.Height > 100)
+            {
+                Left = _prevBounds.Left;
+                Top = _prevBounds.Top;
+                Width = _prevBounds.Width;
+                Height = _prevBounds.Height;
+            }
+
+            ToolbarBorder.Visibility = Visibility.Visible;
+            StatusBarBorder.Visibility = Visibility.Visible;
+            LogExpander.Visibility = Visibility.Visible;
+
+            BtnFullscreen.Content = "⛶ Fullscreen";
+            Log.Info(LogTag, "Exited Fullscreen mode");
+        }
+    }
+
+    private void ShowHudBriefly()
+    {
+        if (!_isFullscreen) return;
+        OverlayHud.Visibility = Visibility.Visible;
+        _hudTimer?.Stop();
+        _hudTimer?.Start();
+    }
+
+    private void OnFullscreenClicked(object sender, RoutedEventArgs e) => ToggleFullscreen();
+
+    private void OnExitFullscreen(object sender, RoutedEventArgs e) => ToggleFullscreen(false);
+
+    private void OnVideoMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_isFullscreen) ShowHudBriefly();
+    }
+
+    private void OnVolumeChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        _currentVolume = (float)e.NewValue;
+        if (SliderHudVolume != null && Math.Abs(SliderHudVolume.Value - _currentVolume) > 0.01)
+            SliderHudVolume.Value = _currentVolume;
+        _server?.BroadcastAudioVolume(_currentVolume);
+    }
+
+    private void OnHudVolumeChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        _currentVolume = (float)e.NewValue;
+        if (SliderVolume != null && Math.Abs(SliderVolume.Value - _currentVolume) > 0.01)
+            SliderVolume.Value = _currentVolume;
+        _server?.BroadcastAudioVolume(_currentVolume);
+    }
+
+    private void OnQuickPlayClicked(object sender, RoutedEventArgs e)
+    {
+        ShowQuickPlayDialog();
+    }
+
+    private void ShowQuickPlayDialog()
+    {
+        var inputWindow = new Window
+        {
+            Title = "Phát YouTube / Media URL",
+            Width = 460,
+            Height = 170,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            Background = (Brush)FindResource("Bg"),
+            ResizeMode = ResizeMode.NoResize
+        };
+
+        var sp = new StackPanel { Margin = new Thickness(16) };
+        var label = new TextBlock
+        {
+            Text = "Dán link YouTube (hoặc video URL) để mở:",
+            Foreground = (Brush)FindResource("Text"),
+            Margin = new Thickness(0, 0, 0, 8),
+            FontWeight = FontWeights.SemiBold
+        };
+        var txtUrl = new TextBox
+        {
+            Margin = new Thickness(0, 0, 0, 12),
+            Padding = new Thickness(6, 4, 6, 4),
+            Background = (Brush)FindResource("Panel"),
+            Foreground = (Brush)FindResource("Text")
+        };
+        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var btnPlay = new Button { Content = "Mở video", Width = 90, Margin = new Thickness(0, 0, 8, 0) };
+        var btnCancel = new Button { Content = "Đóng", Width = 70 };
+
+        btnPlay.Click += (s, ev) =>
+        {
+            var url = txtUrl.Text.Trim();
+            if (!string.IsNullOrWhiteSpace(url))
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = url,
+                        UseShellExecute = true
+                    });
+                    Log.Info(LogTag, "Opened YouTube URL: " + url);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn(LogTag, "Could not launch URL: " + ex.Message);
+                }
+                inputWindow.Close();
+            }
+        };
+        btnCancel.Click += (s, ev) => inputWindow.Close();
+
+        btnPanel.Children.Add(btnPlay);
+        btnPanel.Children.Add(btnCancel);
+        sp.Children.Add(label);
+        sp.Children.Add(txtUrl);
+        sp.Children.Add(btnPanel);
+        inputWindow.Content = sp;
+        inputWindow.ShowDialog();
+    }
+
     // ---------------------------------------------------------------- pointer & keys
 
     private void OnVideoMouseDown(object sender, MouseButtonEventArgs e)
     {
+        if (e.ClickCount == 2)
+        {
+            ToggleFullscreen();
+            return;
+        }
+
         VideoHost.Focus();
         VideoHost.CaptureMouse();
         _input?.OnMouseDown(e.GetPosition(VideoHost), MouseButton.Left);
@@ -413,6 +603,20 @@ public partial class MainWindow : Window
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
+        if (e.Key == Key.F11 || (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Alt) != 0))
+        {
+            ToggleFullscreen();
+            e.Handled = true;
+            return;
+        }
+
+        if (_isFullscreen && e.Key == Key.Escape)
+        {
+            ToggleFullscreen(false);
+            e.Handled = true;
+            return;
+        }
+
         if (_input is not null && _input.OnKeyDown(e.Key, Keyboard.Modifiers))
         {
             e.Handled = true;

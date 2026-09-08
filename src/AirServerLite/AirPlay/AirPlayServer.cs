@@ -143,6 +143,22 @@ public sealed class AirPlayServer : IDisposable
         Log.Info(Tag, "Accept loop exited");
     }
 
+    public void BroadcastAudioVolume(float volume)
+    {
+        lock (_sessionLock)
+        {
+            foreach (var s in _sessions) s.SetAudioVolume(volume);
+        }
+    }
+
+    public void BroadcastAudioMute(bool mute)
+    {
+        lock (_sessionLock)
+        {
+            foreach (var s in _sessions) s.SetAudioMute(mute);
+        }
+    }
+
     public void Stop()
     {
         try { _cts.Cancel(); } catch { }
