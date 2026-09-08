@@ -239,7 +239,7 @@ public sealed class AirPlaySession : IDisposable
                 <key>deviceid</key>
                 <string>{_identity.DeviceId}</string>
                 <key>features</key>
-                <integer>130367356919</integer>
+                <integer>{Discovery.MdnsAdvertiser.FeaturesInt}</integer>
                 <key>model</key>
                 <string>{DeviceIdentity.ModelName}</string>
                 <key>name</key>
@@ -417,7 +417,7 @@ public sealed class AirPlaySession : IDisposable
         {
             { "deviceID", _identity.DeviceId },
             { "macAddress", _identity.DeviceId },
-            { "features", 0x1E5A7FFFF7L },
+            { "features", Discovery.MdnsAdvertiser.FeaturesInt },
             { "statusFlags", 68 },
             { "keepAliveLowPower", true },
             { "keepAliveSendStatsAsBody", true },
