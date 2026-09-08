@@ -131,7 +131,7 @@ public sealed unsafe class H264Decoder : IDisposable
             _sws = ffmpeg.sws_getContext(
                 w, h, format,
                 w, h, AVPixelFormat.AV_PIX_FMT_BGRA,
-                (int)SwsFlags.SWS_BILINEAR, null, null, null);
+                (int)(SwsFlags.SWS_FAST_BILINEAR | SwsFlags.SWS_ACCURATE_RND), null, null, null);
 
             if (_sws == null)
             {

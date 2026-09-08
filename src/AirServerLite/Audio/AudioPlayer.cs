@@ -7,6 +7,9 @@ namespace AirServerLite.Audio;
 /// Ultra-smooth real-time PCM audio playback via Windows Multimedia waveOut API.
 /// 
 /// Performance Architecture:
+/// - Unmanaged WAVEHDR & Data Buffers: Allocated via Marshal.AllocHGlobal and passed by raw pointer
+///   (IntPtr) so the Windows sound card driver can asynchronously write WHDR_DONE and clear WHDR_INQUEUE
+///   directly in memory, without being severed by C# managed struct copying.
 /// - 1ms Multimedia Timer: Calls timeBeginPeriod(1) so Windows thread scheduling
 ///   and event signalling operate with 1ms granularity instead of the default 15.6ms.
 /// - Hardware-Clocked Audio Pump: A dedicated highest-priority thread waits on
@@ -53,17 +56,22 @@ public sealed class AudioPlayer : IDisposable
         public IntPtr reserved;
     }
 
+    private static readonly int HeaderSize = Marshal.SizeOf<WaveHdr>();
+    private static readonly int FlagsOffset = Marshal.OffsetOf<WaveHdr>(nameof(WaveHdr.dwFlags)).ToInt32();
+    private static readonly int BufferLengthOffset = Marshal.OffsetOf<WaveHdr>(nameof(WaveHdr.dwBufferLength)).ToInt32();
+    private static readonly int BytesRecordedOffset = Marshal.OffsetOf<WaveHdr>(nameof(WaveHdr.dwBytesRecorded)).ToInt32();
+
     [DllImport("winmm.dll")]
     private static extern int waveOutOpen(out IntPtr hWaveOut, uint uDeviceID, ref WaveFormatEx lpFormat, IntPtr dwCallback, IntPtr dwInstance, uint dwFlags);
 
     [DllImport("winmm.dll")]
-    private static extern int waveOutPrepareHeader(IntPtr hWaveOut, ref WaveHdr lpWaveHdr, uint uSize);
+    private static extern int waveOutPrepareHeader(IntPtr hWaveOut, IntPtr lpWaveHdr, uint uSize);
 
     [DllImport("winmm.dll")]
-    private static extern int waveOutUnprepareHeader(IntPtr hWaveOut, ref WaveHdr lpWaveHdr, uint uSize);
+    private static extern int waveOutUnprepareHeader(IntPtr hWaveOut, IntPtr lpWaveHdr, uint uSize);
 
     [DllImport("winmm.dll")]
-    private static extern int waveOutWrite(IntPtr hWaveOut, ref WaveHdr lpWaveHdr, uint uSize);
+    private static extern int waveOutWrite(IntPtr hWaveOut, IntPtr lpWaveHdr, uint uSize);
 
     [DllImport("winmm.dll")]
     private static extern int waveOutReset(IntPtr hWaveOut);
@@ -90,7 +98,7 @@ public sealed class AudioPlayer : IDisposable
     private static extern bool CloseHandle(IntPtr hObject);
 
     private IntPtr _hWaveOut;
-    private readonly WaveHdr[] _headers = new WaveHdr[BufferCount];
+    private readonly IntPtr[] _headerPtrs = new IntPtr[BufferCount];
     private readonly IntPtr[] _buffers = new IntPtr[BufferCount];
     private int _nextBuffer;
     private readonly object _lock = new();
@@ -125,6 +133,9 @@ public sealed class AudioPlayer : IDisposable
         }
     }
 
+    /// <summary>Total number of audio buffers submitted to the driver.</summary>
+    public long PlayedCount => Interlocked.Read(ref _played);
+
     public AudioPlayer(int sampleRate = 44100, int channels = 2, int bitsPerSample = 16)
     {
         // Elevate Windows timer precision to 1ms
@@ -153,19 +164,22 @@ public sealed class AudioPlayer : IDisposable
             return;
         }
 
+        // Allocate all WAVEHDR structs and data buffers in unmanaged memory
         for (int i = 0; i < BufferCount; i++)
         {
+            _headerPtrs[i] = Marshal.AllocHGlobal(HeaderSize);
             _buffers[i] = Marshal.AllocHGlobal(BufferSize);
-            _headers[i] = new WaveHdr
-            {
-                lpData = _buffers[i],
-                dwBufferLength = (uint)BufferSize,
-                dwFlags = 0
-            };
+
+            // Zero header
+            for (int b = 0; b < HeaderSize; b++)
+                Marshal.WriteByte(_headerPtrs[i], b, 0);
+
+            Marshal.WriteIntPtr(_headerPtrs[i], 0, _buffers[i]);
+            Marshal.WriteInt32(_headerPtrs[i], BufferLengthOffset, BufferSize);
         }
 
         ApplyVolume();
-        Log.Info(Tag, $"AudioPlayer ready (waveOut CALLBACK_EVENT + timeBeginPeriod(1), {BufferCount}×{BufferSize}B buffers)");
+        Log.Info(Tag, $"AudioPlayer ready (unmanaged waveOut CALLBACK_EVENT + timeBeginPeriod(1), {BufferCount}×{BufferSize}B buffers)");
     }
 
     /// <summary>
@@ -194,8 +208,12 @@ public sealed class AudioPlayer : IDisposable
         int inFlight = 0;
         for (int i = 0; i < BufferCount; i++)
         {
-            if ((_headers[i].dwFlags & WHDR_INQUEUE) != 0)
-                inFlight++;
+            if (_headerPtrs[i] != IntPtr.Zero)
+            {
+                uint flags = (uint)Marshal.ReadInt32(_headerPtrs[i], FlagsOffset);
+                if ((flags & WHDR_INQUEUE) != 0)
+                    inFlight++;
+            }
         }
         return inFlight;
     }
@@ -219,7 +237,7 @@ public sealed class AudioPlayer : IDisposable
                 if (!jitter.IsPrimed)
                 {
                     _needsRampIn = true;
-                    // Wait a few ms for packets to accumulate
+                    // Wait briefly for packets to accumulate
                     Thread.Sleep(5);
                     continue;
                 }
@@ -239,10 +257,14 @@ public sealed class AudioPlayer : IDisposable
                         for (int i = 0; i < BufferCount; i++)
                         {
                             var candidate = (_nextBuffer + i) % BufferCount;
-                            if ((_headers[candidate].dwFlags & WHDR_INQUEUE) == 0)
+                            if (_headerPtrs[candidate] != IntPtr.Zero)
                             {
-                                chosen = candidate;
-                                break;
+                                uint flags = (uint)Marshal.ReadInt32(_headerPtrs[candidate], FlagsOffset);
+                                if ((flags & WHDR_INQUEUE) == 0)
+                                {
+                                    chosen = candidate;
+                                    break;
+                                }
                             }
                         }
 
@@ -250,10 +272,14 @@ public sealed class AudioPlayer : IDisposable
                         {
                             for (int i = 0; i < BufferCount; i++)
                             {
-                                if ((_headers[i].dwFlags & WHDR_DONE) != 0)
+                                if (_headerPtrs[i] != IntPtr.Zero)
                                 {
-                                    chosen = i;
-                                    break;
+                                    uint flags = (uint)Marshal.ReadInt32(_headerPtrs[i], FlagsOffset);
+                                    if ((flags & WHDR_DONE) != 0)
+                                    {
+                                        chosen = i;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -313,24 +339,30 @@ public sealed class AudioPlayer : IDisposable
         {
             if (_disposed || _hWaveOut == IntPtr.Zero) return;
 
+            var headerPtr = _headerPtrs[index];
+            var dataPtr = _buffers[index];
+            if (headerPtr == IntPtr.Zero || dataPtr == IntPtr.Zero) return;
+
             _nextBuffer = (index + 1) % BufferCount;
 
-            if ((_headers[index].dwFlags & WHDR_PREPARED) != 0)
+            uint flags = (uint)Marshal.ReadInt32(headerPtr, FlagsOffset);
+            if ((flags & WHDR_PREPARED) != 0)
             {
-                waveOutUnprepareHeader(_hWaveOut, ref _headers[index], (uint)Marshal.SizeOf<WaveHdr>());
+                waveOutUnprepareHeader(_hWaveOut, headerPtr, (uint)HeaderSize);
             }
 
             var copyLen = Math.Min(length, BufferSize);
-            Marshal.Copy(pcm, 0, _buffers[index], copyLen);
+            Marshal.Copy(pcm, 0, dataPtr, copyLen);
 
-            _headers[index].dwBufferLength = (uint)copyLen;
-            _headers[index].dwBytesRecorded = 0;
-            _headers[index].dwFlags = 0;
+            Marshal.WriteIntPtr(headerPtr, 0, dataPtr);
+            Marshal.WriteInt32(headerPtr, BufferLengthOffset, copyLen);
+            Marshal.WriteInt32(headerPtr, BytesRecordedOffset, 0);
+            Marshal.WriteInt32(headerPtr, FlagsOffset, 0);
 
-            var prepRc = waveOutPrepareHeader(_hWaveOut, ref _headers[index], (uint)Marshal.SizeOf<WaveHdr>());
+            var prepRc = waveOutPrepareHeader(_hWaveOut, headerPtr, (uint)HeaderSize);
             if (prepRc != 0) return;
 
-            waveOutWrite(_hWaveOut, ref _headers[index], (uint)Marshal.SizeOf<WaveHdr>());
+            waveOutWrite(_hWaveOut, headerPtr, (uint)HeaderSize);
         }
     }
 
@@ -349,10 +381,14 @@ public sealed class AudioPlayer : IDisposable
             for (int i = 0; i < BufferCount; i++)
             {
                 var candidate = (_nextBuffer + i) % BufferCount;
-                if ((_headers[candidate].dwFlags & WHDR_INQUEUE) == 0)
+                if (_headerPtrs[candidate] != IntPtr.Zero)
                 {
-                    chosen = candidate;
-                    break;
+                    uint flags = (uint)Marshal.ReadInt32(_headerPtrs[candidate], FlagsOffset);
+                    if ((flags & WHDR_INQUEUE) == 0)
+                    {
+                        chosen = candidate;
+                        break;
+                    }
                 }
             }
 
@@ -360,17 +396,22 @@ public sealed class AudioPlayer : IDisposable
             {
                 for (int i = 0; i < BufferCount; i++)
                 {
-                    if ((_headers[i].dwFlags & WHDR_DONE) != 0)
+                    if (_headerPtrs[i] != IntPtr.Zero)
                     {
-                        chosen = i;
-                        break;
+                        uint flags = (uint)Marshal.ReadInt32(_headerPtrs[i], FlagsOffset);
+                        if ((flags & WHDR_DONE) != 0)
+                        {
+                            chosen = i;
+                            break;
+                        }
                     }
                 }
             }
 
-            if (chosen < 0) return;
+            if (chosen < 0) chosen = _nextBuffer;
 
             SubmitBuffer(chosen, pcm, length);
+            Interlocked.Increment(ref _played);
         }
     }
 
@@ -427,10 +468,17 @@ public sealed class AudioPlayer : IDisposable
                 waveOutReset(_hWaveOut);
                 for (int i = 0; i < BufferCount; i++)
                 {
-                    if ((_headers[i].dwFlags & WHDR_PREPARED) != 0)
+                    if (_headerPtrs[i] != IntPtr.Zero)
                     {
-                        waveOutUnprepareHeader(_hWaveOut, ref _headers[i], (uint)Marshal.SizeOf<WaveHdr>());
+                        uint flags = (uint)Marshal.ReadInt32(_headerPtrs[i], FlagsOffset);
+                        if ((flags & WHDR_PREPARED) != 0)
+                        {
+                            waveOutUnprepareHeader(_hWaveOut, _headerPtrs[i], (uint)HeaderSize);
+                        }
+                        Marshal.FreeHGlobal(_headerPtrs[i]);
+                        _headerPtrs[i] = IntPtr.Zero;
                     }
+
                     if (_buffers[i] != IntPtr.Zero)
                     {
                         Marshal.FreeHGlobal(_buffers[i]);

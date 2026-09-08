@@ -20,13 +20,32 @@ namespace AirServerLite.Discovery;
 /// </summary>
 public sealed class MdnsAdvertiser : IDisposable
 {
-    // features bitfield, low,high. 0x5A7FFFE2 advertises: photo (bit 1),
-    // screen mirroring (bit 7), screen rotation (bit 8), audio (bit 9), audio redundancy (bit 11),
-    // FairPlay v3, "unified advertiser info", legacy pairing.
-    // Bit 0 (Video) and Bit 4 (HLS) are deliberately masked out (0x5A7FFFE2 instead of 0x5A7FFFF7).
-    // This prevents iOS/YouTube from attempting in-app AirPlay video handoff (mlhls:// over PTTH)
-    // which fails due to FairPlay/Widevine DRM and causes black screens or dropped mirror sessions.
-    // With these bits masked out, YouTube video & audio stream seamlessly via Screen Mirroring at 1080p 60fps.
+    // features bitfield, low,high. Starting from the full 0x5A7FFFF7, three bits are masked
+    // out so that iOS never treats us as an AirPlay *video* target:
+    //
+    //   bit 0  Video           - off
+    //   bit 2  VideoFairPlay   - off
+    //   bit 4  VideoHTTPLiveStreams (HLS) - off
+    //
+    // With those off, an app like YouTube plays the video locally on the phone and the frames
+    // reach us through the screen mirror. Leave any of them on and YouTube instead attempts an
+    // in-app handoff (mlhls:// over PTTH), which we cannot satisfy because the media is behind
+    // FairPlay/Widevine DRM - the visible result is a playback error on the phone and a video
+    // that never appears in the mirror.
+    //
+    // Bits that must stay ON, and why:
+    //   bit 7  screen mirroring
+    //   bit 8  screen rotation - iOS needs this to re-negotiate geometry when a video goes
+    //          fullscreen landscape. Masking it is what broke "tap a video and nothing shows".
+    //   bit 9  audio
+    //   bit 11 audio redundancy - iOS then sends redundantAudio=2. Kept ON because this is the
+    //          combination that has actually been observed working end to end; see the note in
+    //          AudioStreamReceiver before changing it.
+    //
+    // NOTE: UxPlay ships "0x5A7FFEE6,0x0" (lib/dnssdint.h). We deliberately differ: UxPlay is a
+    // general-purpose mirror receiver, whereas these values are tuned for the in-app-video case
+    // (bit 2 off, high word kept). Do not "align with UxPlay" without re-testing YouTube
+    // playback - that swap is exactly what regressed this once already.
     public const string Features = "0x5A7FFFE2,0x1E";
     public const long FeaturesInt = 0x1E5A7FFFE2L;
 

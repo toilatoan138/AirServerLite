@@ -40,4 +40,41 @@ public class AudioPlayerTests
         short sMid = (short)(pcm[midOffset] | (pcm[midOffset + 1] << 8));
         Assert.Equal(10000, sMid);
     }
+
+    [Fact]
+    public void AudioPlayer_PlayPcm_MultipleBuffers_DoesNotFreeze()
+    {
+        using var player = new AudioPlayer(44100, 2, 16);
+        byte[] pcm = new byte[1920]; // 10.88ms frame
+
+        // Writing 20 consecutive buffers must not block or throw
+        for (int i = 0; i < 20; i++)
+        {
+            player.PlayPcm(pcm, pcm.Length);
+        }
+
+        Assert.True(player.Volume > 0);
+    }
+
+    [Fact]
+    public void AudioPlayer_AttachJitterBuffer_SustainedPlayback_PlaysContinuously()
+    {
+        using var player = new AudioPlayer(44100, 2, 16);
+        var jitter = new AudioJitterBuffer(preBufferFrames: 4);
+        player.AttachJitterBuffer(jitter);
+
+        // Feed 15 frames into jitter buffer
+        for (ushort i = 0; i < 15; i++)
+        {
+            byte[] frame = new byte[1920];
+            jitter.Write(i, (uint)(i * 480), frame, frame.Length, isPooled: false);
+        }
+
+        // Allow pump thread to process
+        Thread.Sleep(120);
+
+        // Verify player is alive and did not freeze at 4
+        Assert.True(player.PlayedCount > 4, $"Expected played > 4, but got {player.PlayedCount}");
+    }
 }
+

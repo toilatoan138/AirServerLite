@@ -28,9 +28,10 @@ public sealed class VideoPipeline : IDisposable
     private Thread? _decodeThread;
 
     private readonly object _slotLock = new();
-    private BgraFrame? _pendingFrame;
-    private BgraFrame _frontBuffer = new();
-    private BgraFrame _backBuffer = new();
+    private BgraFrame _decodeBuffer = new();
+    private BgraFrame? _readyBuffer;
+    private BgraFrame _presentBuffer = new();
+    private BgraFrame _spareBuffer = new();
 
     private long _packetsDropped;
     private long _framesPresented;
@@ -46,11 +47,13 @@ public sealed class VideoPipeline : IDisposable
 
     public int Width { get; private set; }
     public int Height { get; private set; }
+    public long PacketsDropped => Interlocked.Read(ref _packetsDropped);
 
     public VideoPipeline(int maxQueuedFrames)
     {
         _maxQueued = Math.Max(1, maxQueuedFrames);
-        _queue = new BlockingCollection<VideoPacket>(new ConcurrentQueue<VideoPacket>(), _maxQueued * 4);
+        // Minimum 128 packets capacity to safely absorb Wi-Fi A-MPDU bursts without packet drops.
+        _queue = new BlockingCollection<VideoPacket>(new ConcurrentQueue<VideoPacket>(), Math.Max(128, _maxQueued * 16));
     }
 
     public void Start()
@@ -105,7 +108,7 @@ public sealed class VideoPipeline : IDisposable
             {
                 try
                 {
-                    if (!decoder.TryDecode(packet.Data, packet.Timestamp, _backBuffer, out var frame))
+                    if (!decoder.TryDecode(packet.Data, packet.Timestamp, _decodeBuffer, out var frame))
                         continue;
 
                     if (frame is null) continue;
@@ -115,9 +118,21 @@ public sealed class VideoPipeline : IDisposable
 
                     lock (_slotLock)
                     {
-                        // Swap: the freshly-decoded buffer becomes pending, and whatever the
-                        // UI is not currently holding becomes the next decode target.
-                        (_backBuffer, _pendingFrame) = (_pendingFrame ?? _frontBuffer, frame);
+                        // True triple-buffering handoff:
+                        // If _readyBuffer was not yet consumed by UI, we reclaim it as the next _decodeBuffer.
+                        // Otherwise, we take the _spareBuffer as the next _decodeBuffer.
+                        // _presentBuffer is never touched by this thread.
+                        if (_readyBuffer != null)
+                        {
+                            var oldReady = _readyBuffer;
+                            _readyBuffer = frame;
+                            _decodeBuffer = oldReady;
+                        }
+                        else
+                        {
+                            _readyBuffer = frame;
+                            _decodeBuffer = _spareBuffer;
+                        }
                     }
 
                     decodedSinceReport++;
@@ -171,18 +186,20 @@ public sealed class VideoPipeline : IDisposable
     {
         lock (_slotLock)
         {
-            if (_pendingFrame is null) return null;
-            _frontBuffer = _pendingFrame;
-            _pendingFrame = null;
+            if (_readyBuffer is null) return null;
+            // The previous _presentBuffer becomes the spare for the decoder to reclaim
+            _spareBuffer = _presentBuffer;
+            _presentBuffer = _readyBuffer;
+            _readyBuffer = null;
             _framesPresented++;
-            return _frontBuffer;
+            return _presentBuffer;
         }
     }
 
     public void Reset()
     {
         while (_queue.TryTake(out _)) { }
-        lock (_slotLock) _pendingFrame = null;
+        lock (_slotLock) _readyBuffer = null;
         Log.Info(Tag, "Pipeline reset");
     }
 

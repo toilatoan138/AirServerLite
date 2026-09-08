@@ -44,10 +44,9 @@ public sealed class IProxyHost : IDisposable
         var exe = AppSettings.ResolvePath(_settings.IProxyPath);
         if (!File.Exists(exe))
         {
-            Log.Error(Tag,
-                $"iproxy.exe not found at {exe}. Install libimobiledevice for Windows and point " +
-                "Input.IProxyPath at it, or start the tunnel yourself with: " +
-                $"iproxy {_settings.LocalPort} {_settings.DevicePort}");
+            Log.Debug(Tag,
+                $"iproxy.exe not found at {exe} (optional reverse mouse control disabled). " +
+                "To control iPhone with PC mouse, install libimobiledevice and point Input.IProxyPath at it.");
             return false;
         }
 

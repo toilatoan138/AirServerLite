@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AirServerLite YouTube Player</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0d1117;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    #player-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+    iframe, #player {
+      width: 100% !important;
+      height: 100% !important;
+      border: 0;
+      display: block;
+    }
+    #loading-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at center, #161b22 0%, #0d1117 100%);
+      z-index: 2;
+      transition: opacity 0.3s ease-out;
+      pointer-events: none;
+    }
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid rgba(255, 255, 255, 0.1);
+      border-top-color: #ff0000;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 16px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .status-title {
+      font-size: 16px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      color: #c9d1d9;
+    }
+    .status-sub {
+      font-size: 12px;
+      color: #8b949e;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div id="status-title" class="status-title">AirServerLite YouTube Player</div>
+    <div id="status-sub" class="status-sub">Sẵn sàng nhận luồng phát từ điện thoại...</div>
+  </div>
+
+  <div id="player-container">
+    <div id="player"></div>
+  </div>
+
+  <script>
+    var player = null;
+    var isApiReady = false;
+    var pendingVideoId = null;
+    var pendingStartSeconds = 0;
+    var progressInterval = null;
+
+    function postToHost(msg) {
+      if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
+        window.chrome.webview.postMessage(msg);
+      }
+    }
+
+    var tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/iframe_api";
+    var firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+    function onYouTubeIframeAPIReady() {
+      isApiReady = true;
+      postToHost({ type: 'apiReady' });
+
+      if (pendingVideoId) {
+        initPlayer(pendingVideoId, pendingStartSeconds);
+        pendingVideoId = null;
+      }
+    }
+
+    function initPlayer(videoId, startSeconds) {
+      var overlay = document.getElementById('loading-overlay');
+      var statusTitle = document.getElementById('status-title');
+      if (statusTitle) statusTitle.innerText = "Đang tải video...";
+
+      if (player && typeof player.loadVideoById === 'function') {
+        player.loadVideoById({
+          videoId: videoId,
+          startSeconds: startSeconds || 0
+        });
+        player.playVideo();
+        return;
+      }
+
+      player = new YT.Player('player', {
+        width: '100%',
+        height: '100%',
+        videoId: videoId,
+        playerVars: {
+          'autoplay': 1,
+          'controls': 1,
+          'rel': 0,
+          'modestbranding': 1,
+          'playsinline': 1,
+          'enablejsapi': 1,
+          'fs': 1,
+          'start': Math.floor(startSeconds || 0)
+        },
+        events: {
+          'onReady': onPlayerReady,
+          'onStateChange': onPlayerStateChange,
+          'onError': onPlayerError
+        }
+      });
+    }
+
+    function onPlayerReady(event) {
+      var overlay = document.getElementById('loading-overlay');
+      if (overlay) overlay.style.opacity = '0';
+      setTimeout(function() {
+        if (overlay) overlay.style.display = 'none';
+      }, 300);
+
+      event.target.playVideo();
+      postToHost({
+        type: 'ready',
+        duration: player.getDuration() || 0
+      });
+
+      startProgressTracking();
+    }
+
+    function onPlayerStateChange(event) {
+      var stateMap = {
+        '-1': 'unstarted',
+        '0': 'ended',
+        '1': 'playing',
+        '2': 'paused',
+        '3': 'buffering',
+        '5': 'cued'
+      };
+      var stateName = stateMap[event.data] || 'unknown';
+
+      var overlay = document.getElementById('loading-overlay');
+      if (event.data === 1 && overlay) { // playing
+        overlay.style.display = 'none';
+      }
+
+      postToHost({
+        type: 'stateChange',
+        stateCode: event.data,
+        state: stateName,
+        currentTime: player ? player.getCurrentTime() : 0,
+        duration: player ? player.getDuration() : 0
+      });
+    }
+
+    function onPlayerError(event) {
+      var overlay = document.getElementById('loading-overlay');
+      var statusTitle = document.getElementById('status-title');
+      var statusSub = document.getElementById('status-sub');
+      if (overlay) {
+        overlay.style.display = 'flex';
+        overlay.style.opacity = '1';
+      }
+      if (statusTitle) statusTitle.innerText = "Lỗi phát YouTube";
+      if (statusSub) statusSub.innerText = "Mã lỗi: " + event.data + " (Video có thể bị hạn chế nhúng hoặc bản quyền)";
+
+      postToHost({
+        type: 'error',
+        errorCode: event.data
+      });
+    }
+
+    function startProgressTracking() {
+      if (progressInterval) clearInterval(progressInterval);
+      progressInterval = setInterval(function() {
+        if (player && typeof player.getPlayerState === 'function' && player.getPlayerState() === 1) {
+          postToHost({
+            type: 'timeUpdate',
+            currentTime: player.getCurrentTime(),
+            duration: player.getDuration()
+          });
+        }
+      }, 500);
+    }
+
+    // Bridge methods called from C# via ExecuteScriptAsync:
+    window.loadYouTubeVideo = function(videoId, startSeconds) {
+      if (!isApiReady) {
+        pendingVideoId = videoId;
+        pendingStartSeconds = startSeconds || 0;
+        return;
+      }
+      var overlay = document.getElementById('loading-overlay');
+      if (overlay) {
+        overlay.style.display = 'flex';
+        overlay.style.opacity = '1';
+      }
+      initPlayer(videoId, startSeconds);
+    };
+
+    window.playMedia = function() {
+      if (player && typeof player.playVideo === 'function') player.playVideo();
+    };
+
+    window.pauseMedia = function() {
+      if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
+    };
+
+    window.seekMedia = function(seconds) {
+      if (player && typeof player.seekTo === 'function') player.seekTo(seconds, true);
+    };
+
+    window.setMediaVolume = function(vol0to1) {
+      if (player && typeof player.setVolume === 'function') {
+        var v = Math.round(Math.max(0, Math.min(1, vol0to1)) * 100);
+        player.setVolume(v);
+      }
+    };
+
+    window.setMediaMuted = function(muted) {
+      if (player) {
+        if (muted && typeof player.mute === 'function') player.mute();
+        else if (!muted && typeof player.unMute === 'function') player.unMute();
+      }
+    };
+  </script>
+</body>
+</html>

@@ -112,6 +112,9 @@ if (-not (Test-Path $exe)) { throw "publish completed but $exe is missing" }
 
 Copy-Item $exe $dist -Force
 Copy-Item (Join-Path $root 'src\AirServerLite\appsettings.json') $dist -Force
+if (Test-Path (Join-Path $publishDir 'Assets')) {
+    Copy-Item (Join-Path $publishDir 'Assets') $dist -Recurse -Force
+}
 
 $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
 
