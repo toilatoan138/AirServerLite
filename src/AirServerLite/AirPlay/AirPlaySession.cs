@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using AirServerLite.AirPlay.Crypto;
 using AirServerLite.AirPlay.Streaming;
+using AirServerLite.Audio;
 using AirServerLite.Core;
 using AirServerLite.Discovery;
 using Claunia.PropertyList;
@@ -38,6 +39,9 @@ public sealed class AirPlaySession : IDisposable
     private byte[]? _fairPlayAesKey;
 
     private MirrorStreamReceiver? _mirror;
+    private AudioStreamReceiver? _audioReceiver;
+    private AudioDecoder? _audioDecoder;
+    private AudioPlayer? _audioPlayer;
     private TcpListener? _eventListener;
     private UdpClient? _timingSocket;
     private AesCtr? _controlCipher;
@@ -422,21 +426,50 @@ public sealed class AirPlaySession : IDisposable
 
                 case 96: // AAC-ELD audio
                 {
-                    // Accepted and drained. Refusing the audio stream makes some iOS builds
-                    // abandon the whole session, so we allocate the ports and discard.
-                    var audio = NetUtil.BindEphemeralUdp(_bindAddress, out var audioDataPort);
-                    var control = NetUtil.BindEphemeralUdp(_bindAddress, out var audioControlPort);
-                    _ = DrainUdpAsync(audio, "audio-data", _cts.Token);
-                    _ = DrainUdpAsync(control, "audio-control", _cts.Token);
-
-                    responseStreams.Add(new NSDictionary
+                    var aesKey = _fairPlayAesKey ?? DeviceKeyCache.TryGet(RemoteAddress);
+                    if (aesKey is not null)
                     {
-                        { "type", 96 },
-                        { "dataPort", audioDataPort },
-                        { "controlPort", audioControlPort }
-                    });
+                        _audioReceiver?.Dispose();
+                        _audioDecoder?.Dispose();
+                        _audioPlayer?.Dispose();
 
-                    Log.Info(Tag, $"Audio stream accepted (discarded) on {audioDataPort}/{audioControlPort}");
+                        _audioReceiver = new AudioStreamReceiver(_bindAddress, aesKey);
+                        _audioDecoder = new AudioDecoder();
+                        _audioPlayer = new AudioPlayer();
+
+                        _audioReceiver.PacketReady += pkt =>
+                        {
+                            if (_audioDecoder.TryDecode(pkt.Data, out var pcm))
+                                _audioPlayer.PlayPcm(pcm);
+                        };
+                        _audioReceiver.Start();
+
+                        responseStreams.Add(new NSDictionary
+                        {
+                            { "type", 96 },
+                            { "dataPort", _audioReceiver.DataPort },
+                            { "controlPort", _audioReceiver.ControlPort }
+                        });
+
+                        Log.Info(Tag, $"Audio stream pipeline active on {_audioReceiver.DataPort}/{_audioReceiver.ControlPort}");
+                    }
+                    else
+                    {
+                        // Fallback drain if key is absent
+                        var audio = NetUtil.BindEphemeralUdp(_bindAddress, out var audioDataPort);
+                        var control = NetUtil.BindEphemeralUdp(_bindAddress, out var audioControlPort);
+                        _ = DrainUdpAsync(audio, "audio-data", _cts.Token);
+                        _ = DrainUdpAsync(control, "audio-control", _cts.Token);
+
+                        responseStreams.Add(new NSDictionary
+                        {
+                            { "type", 96 },
+                            { "dataPort", audioDataPort },
+                            { "controlPort", audioControlPort }
+                        });
+
+                        Log.Warn(Tag, $"No AES key available for audio stream; draining on {audioDataPort}/{audioControlPort}");
+                    }
                     break;
                 }
 
@@ -463,6 +496,12 @@ public sealed class AirPlaySession : IDisposable
         Log.Info(Tag, "TEARDOWN received");
         _mirror?.Dispose();
         _mirror = null;
+        _audioReceiver?.Dispose();
+        _audioReceiver = null;
+        _audioDecoder?.Dispose();
+        _audioDecoder = null;
+        _audioPlayer?.Dispose();
+        _audioPlayer = null;
         return RtspResponse.Ok(req);
     }
 
@@ -474,11 +513,36 @@ public sealed class AirPlaySession : IDisposable
         return r;
     }
 
-    private static RtspResponse HandleSetParameter(RtspRequest req)
+    private RtspResponse HandleSetParameter(RtspRequest req)
     {
         if (req.ContentType.StartsWith("text/parameters", StringComparison.OrdinalIgnoreCase))
-            Log.Debug(Tag, "SET_PARAMETER " + System.Text.Encoding.ASCII.GetString(req.Body).Trim());
+        {
+            var text = System.Text.Encoding.ASCII.GetString(req.Body).Trim();
+            Log.Debug(Tag, "SET_PARAMETER " + text);
+            if (text.StartsWith("volume:", StringComparison.OrdinalIgnoreCase))
+            {
+                var valStr = text.Substring(7).Trim();
+                if (float.TryParse(valStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var dbVol))
+                {
+                    // dbVol ranges from 0.0 dB down to -30.0 dB (or -144 for mute)
+                    float linearVol;
+                    if (dbVol <= -30.0f) linearVol = 0f;
+                    else linearVol = Math.Clamp((dbVol + 30.0f) / 30.0f, 0f, 1f);
+                    if (_audioPlayer != null) _audioPlayer.Volume = linearVol;
+                }
+            }
+        }
         return RtspResponse.Ok(req);
+    }
+
+    public void SetAudioVolume(float volume)
+    {
+        if (_audioPlayer != null) _audioPlayer.Volume = volume;
+    }
+
+    public void SetAudioMute(bool mute)
+    {
+        if (_audioPlayer != null) _audioPlayer.IsMuted = mute;
     }
 
     /// <summary>
@@ -524,6 +588,9 @@ public sealed class AirPlaySession : IDisposable
 
         try { _cts.Cancel(); } catch { }
         _mirror?.Dispose();
+        _audioReceiver?.Dispose();
+        _audioDecoder?.Dispose();
+        _audioPlayer?.Dispose();
         _eventListener?.Stop();
         _timingSocket?.Dispose();
         _controlCipher?.Dispose();
