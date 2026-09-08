@@ -53,6 +53,10 @@
                        RenderOptions.BitmapScalingMode="LowQuality"
                        SnapsToDevicePixels="True"/>
 
+                <MediaElement x:Name="MediaVideoPlayer" Stretch="Uniform"
+                              LoadedBehavior="Manual" UnloadedBehavior="Stop"
+                              Visibility="Collapsed"/>
+
                 <StackPanel x:Name="Placeholder" HorizontalAlignment="Center"
                             VerticalAlignment="Center" Margin="40">
                     <Image Source="pack://application:,,,/Assets/logo.png"
