@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using AirServerLite.AirPlay;
 using AirServerLite.AirPlay.Crypto;
 using AirServerLite.AirPlay.Streaming;
@@ -78,6 +79,15 @@ public partial class MainWindow : Window
         // with the compositor, so a frame drawn here is on screen at the very next vblank
         // with no extra scheduling delay.
         CompositionTarget.Rendering += OnRendering;
+
+        // Elevate WPF animation and composition clock to 120 FPS for high-refresh displays
+        try
+        {
+            System.Windows.Media.Animation.Timeline.DesiredFrameRateProperty.OverrideMetadata(
+                typeof(System.Windows.Media.Animation.Timeline),
+                new FrameworkPropertyMetadata(120));
+        }
+        catch { }
     }
 
     // ---------------------------------------------------------------- lifecycle
@@ -151,7 +161,7 @@ public partial class MainWindow : Window
             _identity = DeviceIdentity.LoadOrCreate(_settings.DeviceName, nic.Mac);
 
             _pipeline = new VideoPipeline(_settings.Video.MaxQueuedFrames);
-            _pipeline.FrameAvailable += () => _frameWaiting = true;
+            _pipeline.FrameAvailable += OnPipelineFrameAvailable;
             _pipeline.StatsUpdated += line => Dispatcher.BeginInvoke(() => StatsText.Text = line);
             _pipeline.Start();
 
@@ -644,6 +654,19 @@ public partial class MainWindow : Window
     }
 
     // ---------------------------------------------------------------- rendering
+
+    private void OnPipelineFrameAvailable()
+    {
+        _frameWaiting = true;
+        // Direct zero-delay presentation pass to Direct3D backbuffer
+        Dispatcher.BeginInvoke(DispatcherPriority.Render, RenderFrameIfWaiting);
+    }
+
+    private void RenderFrameIfWaiting()
+    {
+        if (!_frameWaiting || _pipeline is null) return;
+        OnRendering(null, EventArgs.Empty);
+    }
 
     private void OnRendering(object? sender, EventArgs e)
     {

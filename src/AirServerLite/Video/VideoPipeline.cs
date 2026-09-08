@@ -62,9 +62,7 @@ public sealed class VideoPipeline : IDisposable
         {
             IsBackground = true,
             Name = "h264-decode",
-            // Above normal keeps the decoder ahead of UI work without starving the input
-            // thread the way Highest would.
-            Priority = ThreadPriority.AboveNormal
+            Priority = ThreadPriority.Highest
         };
         _decodeThread.Start();
         Log.Info(Tag, "Decode thread started");

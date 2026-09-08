@@ -56,7 +56,7 @@ public sealed unsafe class H264Decoder : IDisposable
         _ctx->flags |= ffmpeg.AV_CODEC_FLAG_LOW_DELAY;
         _ctx->flags2 |= ffmpeg.AV_CODEC_FLAG2_FAST;
         _ctx->thread_type = ffmpeg.FF_THREAD_SLICE;
-        _ctx->thread_count = Math.Min(Environment.ProcessorCount, 4);
+        _ctx->thread_count = Math.Clamp(Environment.ProcessorCount, 2, 8);
         _ctx->err_recognition = 0;
 
         var rc = ffmpeg.avcodec_open2(_ctx, codec, null);
@@ -131,7 +131,7 @@ public sealed unsafe class H264Decoder : IDisposable
             _sws = ffmpeg.sws_getContext(
                 w, h, format,
                 w, h, AVPixelFormat.AV_PIX_FMT_BGRA,
-                (int)(SwsFlags.SWS_FAST_BILINEAR | SwsFlags.SWS_ACCURATE_RND), null, null, null);
+                (int)SwsFlags.SWS_FAST_BILINEAR, null, null, null);
 
             if (_sws == null)
             {

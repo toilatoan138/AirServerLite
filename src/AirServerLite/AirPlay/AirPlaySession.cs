@@ -702,7 +702,7 @@ public sealed class AirPlaySession : IDisposable
                         _audioPlayer.IsMuted = _isMuted;
 
                         // Jitter buffer sits between decoder and player to absorb network timing variance
-                        _audioJitterBuffer = new AudioJitterBuffer(preBufferFrames: 6);
+                        _audioJitterBuffer = new AudioJitterBuffer(preBufferFrames: 3);
                         _audioPlayer.AttachJitterBuffer(_audioJitterBuffer);
 
                         _audioReceiver.PacketReady += pkt =>

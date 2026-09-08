@@ -201,7 +201,7 @@ public sealed class AudioPlayer : IDisposable
         }
     }
 
-    private const int TargetInFlightBuffers = 4; // ~45ms audio queued in waveOut driver
+    private const int TargetInFlightBuffers = 3; // ~32ms audio queued in waveOut driver
 
     private int CountInFlightBuffers()
     {
@@ -303,6 +303,9 @@ public sealed class AudioPlayer : IDisposable
                             ApplyRampIn(frame.Data, frame.Length, RampSamples);
                             _needsRampIn = false;
                         }
+
+                        // Apply studio-grade DSP Audio Enhancer (Warm Bass, Vocal Clarity, Stereo Expansion, Limiter)
+                        AudioEnhancer.Process(frame.Data, frame.Length);
 
                         SubmitBuffer(chosen, frame.Data, frame.Length);
                         Interlocked.Increment(ref _played);
@@ -410,6 +413,7 @@ public sealed class AudioPlayer : IDisposable
 
             if (chosen < 0) chosen = _nextBuffer;
 
+            AudioEnhancer.Process(pcm, length);
             SubmitBuffer(chosen, pcm, length);
             Interlocked.Increment(ref _played);
         }
@@ -496,6 +500,7 @@ public sealed class AudioPlayer : IDisposable
             }
         }
 
+        AudioEnhancer.Reset();
         // Restore system timer resolution
         timeEndPeriod(1);
         _cts.Dispose();
