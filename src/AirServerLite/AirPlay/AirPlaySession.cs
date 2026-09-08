@@ -37,11 +37,15 @@ public sealed class AirPlaySession : IDisposable
     private readonly PairVerifySession _pairing;
     private FairPlay? _fairPlay;
     private byte[]? _fairPlayAesKey;
+    private byte[]? _audioIv;
 
     private MirrorStreamReceiver? _mirror;
     private AudioStreamReceiver? _audioReceiver;
     private AudioDecoder? _audioDecoder;
     private AudioPlayer? _audioPlayer;
+    private AudioJitterBuffer? _audioJitterBuffer;
+    private float _volume = 1.0f;
+    private bool _isMuted;
     private TcpListener? _eventListener;
     private UdpClient? _timingSocket;
     private AesCtr? _controlCipher;
@@ -214,7 +218,7 @@ public sealed class AirPlaySession : IDisposable
             ("POST", "/getProperty") => HandleGetProperty(req),
             ("POST", "/action") => RtspResponse.Ok(req),
             ("POST", "/feedback") => RtspResponse.Ok(req),
-            ("POST", "/audioMode") => RtspResponse.Ok(req),
+            ("POST", "/audioMode") => HandleAudioMode(req),
             ("GET_PARAMETER", _) => HandleGetParameter(req),
             ("SET_PARAMETER", _) => HandleSetParameter(req),
             ("FLUSH", _) => RtspResponse.Ok(req),
@@ -391,6 +395,36 @@ public sealed class AirPlaySession : IDisposable
         return RtspResponse.Ok(req);
     }
 
+    private RtspResponse HandleAudioMode(RtspRequest req)
+    {
+        string mode = "default";
+        if (req.Body.Length > 0)
+        {
+            try
+            {
+                var plist = PlistHelper.Parse(req.Body);
+                var extracted = plist.GetString("audioMode");
+                if (!string.IsNullOrEmpty(extracted))
+                {
+                    mode = extracted;
+                }
+                else
+                {
+                    var text = System.Text.Encoding.UTF8.GetString(req.Body);
+                    var match = System.Text.RegularExpressions.Regex.Match(text, @"<key>audioMode</key>\s*<string>([^<]+)</string>");
+                    if (match.Success) mode = match.Groups[1].Value;
+                }
+            }
+            catch { }
+        }
+
+        Log.Info(Tag, $"POST /audioMode received: mode={mode}");
+        var r = RtspResponse.Ok(req);
+        if (req.Headers.TryGetValue("X-Apple-Session-ID", out var sessId))
+            r.Headers["X-Apple-Session-ID"] = sessId;
+        return r;
+    }
+
     /// <summary>
     /// GET /info. The "displays" entry is what tells iOS the geometry to encode at - so this
     /// is where mirroring resolution is actually chosen.
@@ -413,6 +447,38 @@ public sealed class AirPlaySession : IDisposable
             { "uuid", _identity.PairingUuid }
         };
 
+        var audioLatencies = new NSArray(
+            new NSDictionary
+            {
+                { "type", 100 },
+                { "audioType", "default" },
+                { "inputLatencyMicros", 0 },
+                { "outputLatencyMicros", 0 }
+            },
+            new NSDictionary
+            {
+                { "type", 101 },
+                { "audioType", "default" },
+                { "inputLatencyMicros", 0 },
+                { "outputLatencyMicros", 0 }
+            }
+        );
+
+        var audioFormats = new NSArray(
+            new NSDictionary
+            {
+                { "type", 100 },
+                { "audioInputFormats", 0x3fffffc },
+                { "audioOutputFormats", 0x3fffffc }
+            },
+            new NSDictionary
+            {
+                { "type", 101 },
+                { "audioInputFormats", 0x3fffffc },
+                { "audioOutputFormats", 0x3fffffc }
+            }
+        );
+
         var info = new NSDictionary
         {
             { "deviceID", _identity.DeviceId },
@@ -429,6 +495,9 @@ public sealed class AirPlaySession : IDisposable
             { "psi", _identity.PairingUuid },
             { "pk", new NSData(_identity.Ed25519PublicKey) },
             { "vv", 2 },
+            { "initialVolume", _volume },
+            { "audioLatencies", audioLatencies },
+            { "audioFormats", audioFormats },
             { "displays", new NSArray(display) }
         };
 
@@ -522,6 +591,14 @@ public sealed class AirPlaySession : IDisposable
             Log.Warn(Tag, "SETUP phase 1 had no ekey field");
         }
 
+        var eiv = plist.GetData("eiv");
+        if (eiv is not null && eiv.Length == 16)
+        {
+            _audioIv = eiv;
+            DeviceKeyCache.RememberAudioIv(RemoteAddress, _audioIv);
+            Log.Info(Tag, $"Extracted audio IV (eiv): {Convert.ToHexString(_audioIv)} and stored in DeviceKeyCache");
+        }
+
         _eventListener = NetUtil.BindEphemeralTcp(_bindAddress, out var eventPort);
         _ = AcceptEventChannelAsync(_eventListener, _cts.Token);
 
@@ -599,20 +676,45 @@ public sealed class AirPlaySession : IDisposable
                 case 96: // AAC-ELD audio
                 {
                     var aesKey = _fairPlayAesKey ?? DeviceKeyCache.TryGet(RemoteAddress);
+                    var audioIv = _audioIv ?? DeviceKeyCache.TryGetAudioIv(RemoteAddress);
+                    if (audioIv is null && s.GetData("eiv") is { Length: 16 } streamEiv)
+                    {
+                        audioIv = streamEiv;
+                    }
+
                     if (aesKey is not null)
                     {
-                        _audioReceiver?.Dispose();
-                        _audioDecoder?.Dispose();
-                        _audioPlayer?.Dispose();
+                        var audioFormat = s.GetInt("audioFormat") ?? 0;
+                        var spf = (int)(s.GetInt("spf") ?? 480);
+                        var sr = (int)(s.GetInt("sr") ?? 44100);
+                        var ct = (int)(s.GetInt("ct") ?? 0);
 
-                        _audioReceiver = new AudioStreamReceiver(_bindAddress, aesKey);
-                        _audioDecoder = new AudioDecoder();
+                        var codecType = (audioFormat == 262144 || spf == 352 || ct == 2)
+                            ? AudioCodecType.Alac
+                            : AudioCodecType.AacEld;
+
+                        Log.Info(Tag, $"Stream 96 audio codec detected: {codecType} (format=0x{audioFormat:X}, spf={spf}, sr={sr}, ct={ct})");
+
+                        _audioReceiver = new AudioStreamReceiver(_bindAddress, aesKey, audioIv);
+                        _audioDecoder = new AudioDecoder(codecType, sr, 2, spf);
                         _audioPlayer = new AudioPlayer();
+                        _audioPlayer.Volume = _volume;
+                        _audioPlayer.IsMuted = _isMuted;
+
+                        // Jitter buffer sits between decoder and player to absorb network timing variance
+                        _audioJitterBuffer = new AudioJitterBuffer(preBufferFrames: 6);
+                        _audioPlayer.AttachJitterBuffer(_audioJitterBuffer);
 
                         _audioReceiver.PacketReady += pkt =>
                         {
-                            if (_audioDecoder.TryDecode(pkt.Data, out var pcm))
-                                _audioPlayer.PlayPcm(pcm);
+                            var dec = _audioDecoder;
+                            var jitter = _audioJitterBuffer;
+                            if (dec != null && jitter != null &&
+                                dec.TryDecode(pkt.Data, pkt.DataLength, out var pcm, out var pcmLen, out var isPooled))
+                            {
+                                jitter.Write(pkt.SequenceNumber, pkt.Timestamp, pcm, pcmLen, isPooled);
+                            }
+                            pkt.ReturnBuffer(); // Always return the pooled input buffer
                         };
                         _audioReceiver.Start();
 
@@ -623,7 +725,7 @@ public sealed class AirPlaySession : IDisposable
                             { "controlPort", _audioReceiver.ControlPort }
                         });
 
-                        Log.Info(Tag, $"Audio stream pipeline active on {_audioReceiver.DataPort}/{_audioReceiver.ControlPort}");
+                        Log.Info(Tag, $"Audio stream pipeline active on {_audioReceiver.DataPort}/{_audioReceiver.ControlPort} (IV={Convert.ToHexString(audioIv ?? new byte[16])})");
                     }
                     else
                     {
@@ -666,14 +768,56 @@ public sealed class AirPlaySession : IDisposable
     private RtspResponse HandleTeardown(RtspRequest req)
     {
         Log.Info(Tag, "TEARDOWN received");
-        _mirror?.Dispose();
-        _mirror = null;
-        _audioReceiver?.Dispose();
-        _audioReceiver = null;
-        _audioDecoder?.Dispose();
-        _audioDecoder = null;
-        _audioPlayer?.Dispose();
-        _audioPlayer = null;
+
+        bool teardownAudio = false;
+        bool teardownVideo = false;
+
+        if (req.Body.Length > 0)
+        {
+            var plist = PlistHelper.Parse(req.Body);
+            if (plist != null)
+            {
+                Log.Debug(Tag, "TEARDOWN plist:\n" + PlistHelper.Describe(plist));
+                if (plist.Get("streams") is NSArray streams)
+                {
+                    for (int i = 0; i < streams.Count; i++)
+                    {
+                        if (streams[i] is NSDictionary s)
+                        {
+                            var type = s.GetInt("type") ?? -1;
+                            if (type == 96) teardownAudio = true;
+                            else if (type == 110) teardownVideo = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no specific stream was requested, tear down both
+        if (!teardownAudio && !teardownVideo)
+        {
+            teardownAudio = true;
+            teardownVideo = true;
+        }
+
+        Log.Info(Tag, $"TEARDOWN stream(s): audio={teardownAudio}, video={teardownVideo}");
+
+        if (teardownVideo)
+        {
+            _mirror?.Dispose();
+            _mirror = null;
+        }
+
+        if (teardownAudio)
+        {
+            _audioReceiver?.Dispose();
+            _audioReceiver = null;
+            _audioDecoder?.Dispose();
+            _audioDecoder = null;
+            _audioPlayer?.Dispose();
+            _audioPlayer = null;
+        }
+
         return RtspResponse.Ok(req);
     }
 
@@ -700,6 +844,8 @@ public sealed class AirPlaySession : IDisposable
                     float linearVol;
                     if (dbVol <= -30.0f) linearVol = 0f;
                     else linearVol = Math.Clamp((dbVol + 30.0f) / 30.0f, 0f, 1f);
+                    _volume = linearVol;
+                    _isMuted = linearVol <= 0f;
                     if (_audioPlayer != null) _audioPlayer.Volume = linearVol;
                 }
             }
@@ -709,11 +855,13 @@ public sealed class AirPlaySession : IDisposable
 
     public void SetAudioVolume(float volume)
     {
-        if (_audioPlayer != null) _audioPlayer.Volume = volume;
+        _volume = Math.Clamp(volume, 0f, 1f);
+        if (_audioPlayer != null) _audioPlayer.Volume = _volume;
     }
 
     public void SetAudioMute(bool mute)
     {
+        _isMuted = mute;
         if (_audioPlayer != null) _audioPlayer.IsMuted = mute;
     }
 
@@ -761,6 +909,7 @@ public sealed class AirPlaySession : IDisposable
         try { _cts.Cancel(); } catch { }
         _mirror?.Dispose();
         _audioReceiver?.Dispose();
+        _audioJitterBuffer?.Dispose();
         _audioDecoder?.Dispose();
         _audioPlayer?.Dispose();
         _eventListener?.Stop();

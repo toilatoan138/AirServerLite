@@ -13,4 +13,14 @@ public class AudioDecoderTests
         Assert.Equal(2, decoder.Channels);
         Assert.Equal(16, decoder.BitsPerSample);
     }
+
+    [Fact]
+    public void AudioDecoder_AlacCodec_InitializesSuccessfully()
+    {
+        using var decoder = new AudioDecoder(AudioCodecType.Alac, sampleRate: 44100, channels: 2, framesPerPacket: 352);
+        Assert.NotNull(decoder);
+        Assert.Equal(AudioCodecType.Alac, decoder.CodecType);
+        Assert.Equal(44100, decoder.SampleRate);
+        Assert.Equal(2, decoder.Channels);
+    }
 }

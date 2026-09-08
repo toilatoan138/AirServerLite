@@ -90,6 +90,9 @@ public sealed class MirrorStreamReceiver : IDisposable
 
             Log.Info(Tag, "Mirror stream connected from " + client.Client.RemoteEndPoint);
 
+            client.NoDelay = true;
+            client.ReceiveBufferSize = 4 * 1024 * 1024;
+
             await using var stream = client.GetStream();
             await ReadLoopAsync(stream, ct).ConfigureAwait(false);
 

@@ -22,7 +22,7 @@ public static class DeviceKeyCache
     private const string Tag = "keycache";
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(2);
 
-    private sealed record Entry(byte[]? AesKey, byte[]? SharedSecret, DateTime StoredUtc);
+    private sealed record Entry(byte[]? AesKey, byte[]? SharedSecret, byte[]? AudioIv, DateTime StoredUtc);
 
     private static readonly ConcurrentDictionary<string, Entry> Store = new();
 
@@ -31,8 +31,8 @@ public static class DeviceKeyCache
         var key = device.ToString();
         Store.AddOrUpdate(
             key,
-            _ => new Entry(aesKey, null, DateTime.UtcNow),
-            (_, existing) => new Entry(aesKey, existing.SharedSecret, DateTime.UtcNow));
+            _ => new Entry(aesKey, null, null, DateTime.UtcNow),
+            (_, existing) => new Entry(aesKey, existing.SharedSecret, existing.AudioIv, DateTime.UtcNow));
         Log.Debug(Tag, $"Stored the FairPlay AES key for {key}");
     }
 
@@ -41,9 +41,19 @@ public static class DeviceKeyCache
         var key = device.ToString();
         Store.AddOrUpdate(
             key,
-            _ => new Entry(null, sharedSecret, DateTime.UtcNow),
-            (_, existing) => new Entry(existing.AesKey, sharedSecret, DateTime.UtcNow));
+            _ => new Entry(null, sharedSecret, null, DateTime.UtcNow),
+            (_, existing) => new Entry(existing.AesKey, sharedSecret, existing.AudioIv, DateTime.UtcNow));
         Log.Debug(Tag, $"Stored X25519 shared secret for {key}");
+    }
+
+    public static void RememberAudioIv(IPAddress device, byte[] audioIv)
+    {
+        var key = device.ToString();
+        Store.AddOrUpdate(
+            key,
+            _ => new Entry(null, null, (byte[])audioIv.Clone(), DateTime.UtcNow),
+            (_, existing) => new Entry(existing.AesKey, existing.SharedSecret, (byte[])audioIv.Clone(), DateTime.UtcNow));
+        Log.Debug(Tag, $"Stored audio IV for {key}");
     }
 
     /// <summary>Returns the most recent key for this device, or null when nothing usable is cached.</summary>
@@ -78,6 +88,22 @@ public static class DeviceKeyCache
         }
 
         return e.SharedSecret;
+    }
+
+    public static byte[]? TryGetAudioIv(IPAddress device)
+    {
+        var key = device.ToString();
+        if (!Store.TryGetValue(key, out var e) || e.AudioIv is null) return null;
+
+        var age = DateTime.UtcNow - e.StoredUtc;
+        if (age > Ttl)
+        {
+            Store.TryRemove(key, out _);
+            Log.Debug(Tag, $"Discarded audio IV for {key} (age {age.TotalSeconds:F0}s exceeds TTL)");
+            return null;
+        }
+
+        return (byte[])e.AudioIv.Clone();
     }
 
     public static void Forget(IPAddress device)
