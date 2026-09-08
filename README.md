@@ -219,7 +219,7 @@ giờ bị nhầm là hợp lệ (ghi vào thư mục tạm rồi mới rename).
 
 ### Điều khiển
 
-| Thao tác PC | Cử chỉ iOS |
+| Thao tác PC | Cử chỉ iOS / Chức năng |
 |---|---|
 | Click trái | tap |
 | Giữ chuột > 300 ms | long press |
@@ -227,7 +227,10 @@ giờ bị nhầm là hợp lệ (ghi vào thư mục tạm rồi mới rename).
 | Cuộn chuột | swipe dọc |
 | Click phải / `Ctrl+H` | Home |
 | Gõ phím | nhập text (gộp 30 ms/lần gửi) |
-| Nút trên toolbar | Home / Volume / Lock |
+| `F11` / `Alt+Enter` / Double-click | Bật / tắt chế độ Cinema Fullscreen tràn viền |
+| Thanh trượt Volume / HUD | Chỉnh âm lượng âm thanh phát ra loa PC |
+| Nút `▶ YouTube` | Mở nhanh video YouTube trực tiếp |
+| Nút trên toolbar | Home / Volume / Lock / Fullscreen / YouTube |
 
 ---
 
@@ -293,5 +296,9 @@ theo mô tả giao thức đã được reverse-engineer công khai và **cần 
 Mọi giả định trên đều có log tương ứng và fail nhanh với thông điệp cụ thể — đó là thiết kế
 có chủ đích để việc đối chiếu với thiết bị thật mất vài phút chứ không phải vài ngày.
 
-**Không implement:** audio (stream type 96 được chấp nhận rồi bỏ — từ chối nó khiến một số bản
-iOS huỷ cả phiên), AirPlay 2 HomeKit pairing (dùng đường legacy có chủ đích), HDR/HEVC.
+**Tính năng mới cho YouTube & Media:**
+- **Audio Subsystem:** Nhận luồng RTP stream 96, giải mã AES-128-CBC và decode AAC-ELD/ALAC qua FFmpeg, phát ra loa PC qua Windows winmm `waveOut` API độ trễ cực thấp (<30ms).
+- **Cinema Fullscreen & Auto-Orientation:** Nhận diện video 16:9 khi xoay ngang iPhone (xem YouTube), hỗ trợ Fullscreen tràn viền (`F11`/Double click) kèm thanh điều khiển HUD tự ẩn.
+- **AirPlay Media Engine:** Xử lý `POST /play`, `GET /playback-info`, `POST /rate`, `POST /scrub`, `POST /stop` từ app YouTube/Safari trên iOS, kèm tính năng Quick Play YouTube trên giao diện.
+
+**Không implement:** AirPlay 2 HomeKit pairing (dùng đường legacy có chủ đích), HDR/HEVC DRM phần cứng.
