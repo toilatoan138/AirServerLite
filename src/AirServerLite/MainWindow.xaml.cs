@@ -144,6 +144,8 @@ public partial class MainWindow : Window
 
             _server = new AirPlayServer(_identity, nic.Address, _settings);
             _server.MirrorStarted += OnMirrorStarted;
+            _server.MediaPlayStarted += OnMediaPlayStarted;
+            _server.MediaPlayStopped += OnMediaPlayStopped;
             _server.SessionStateChanged += state =>
                 Dispatcher.BeginInvoke(() => SetStatus(state + " - " + nic.Address, ready: true));
             _server.Start();
@@ -212,6 +214,24 @@ public partial class MainWindow : Window
         {
             Placeholder.Visibility = Visibility.Collapsed;
             SetStatus("Mirroring", ready: true);
+        });
+    }
+
+    private void OnMediaPlayStarted(AirPlay.MediaSession session)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            Placeholder.Visibility = Visibility.Collapsed;
+            SetStatus($"Media Streaming: {session.ClientProcName ?? "YouTube"}", ready: true);
+            Log.Info(LogTag, $"AirPlay Media streaming: {session.ContentLocation}");
+        });
+    }
+
+    private void OnMediaPlayStopped()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            SetStatus("Media stopped", ready: true);
         });
     }
 

@@ -22,6 +22,20 @@ public sealed class RtspRequest
     public string ContentType => Header("Content-Type") ?? "";
     public string CSeq => Header("CSeq") ?? "0";
 
+    public string? GetQueryParam(string name)
+    {
+        var q = Uri.IndexOf('?');
+        if (q < 0 || q >= Uri.Length - 1) return null;
+        var query = Uri[(q + 1)..];
+        foreach (var part in query.Split('&'))
+        {
+            var kv = part.Split('=', 2);
+            if (kv.Length == 2 && kv[0].Equals(name, StringComparison.OrdinalIgnoreCase))
+                return System.Uri.UnescapeDataString(kv[1]);
+        }
+        return null;
+    }
+
     /// <summary>Path without query string, e.g. "/fp-setup".</summary>
     public string Path
     {

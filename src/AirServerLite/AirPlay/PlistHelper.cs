@@ -58,6 +58,16 @@ public static class PlistHelper
         };
     }
 
+    public static double? GetDouble(this NSDictionary? dict, string key)
+    {
+        return Get(dict, key) switch
+        {
+            NSNumber n => n.ToDouble(),
+            NSString s when double.TryParse(s.Content, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) => v,
+            _ => null
+        };
+    }
+
     public static bool GetBool(this NSDictionary? dict, string key, bool fallback = false)
         => Get(dict, key) switch
         {

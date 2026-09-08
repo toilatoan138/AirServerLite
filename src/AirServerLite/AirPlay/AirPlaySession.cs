@@ -60,6 +60,12 @@ public sealed class AirPlaySession : IDisposable
     /// <summary>Raised once video packets can start flowing.</summary>
     public event Action<MirrorStreamReceiver>? MirrorStarted;
 
+    /// <summary>Raised when an AirPlay Media stream (e.g. YouTube / Safari) starts.</summary>
+    public event Action<MediaSession>? MediaPlayStarted;
+
+    /// <summary>Raised when an AirPlay Media stream stops.</summary>
+    public event Action? MediaPlayStopped;
+
     public event Action<AirPlaySession>? Ended;
 
     public AirPlaySession(TcpClient client, DeviceIdentity identity, IPAddress bindAddress,
@@ -181,6 +187,8 @@ public sealed class AirPlaySession : IDisposable
         reader.Pushback(probe);
     }
 
+    private MediaSession? _mediaSession;
+
     private RtspResponse Handle(RtspRequest req)
     {
         var path = req.Path;
@@ -195,12 +203,16 @@ public sealed class AirPlaySession : IDisposable
             ("RECORD", _) => HandleRecord(req),
             ("TEARDOWN", _) => HandleTeardown(req),
             ("OPTIONS", _) => HandleOptions(req),
+            ("POST", "/play") => HandlePlay(req),
+            ("GET", "/playback-info") => HandlePlaybackInfo(req),
+            ("POST", "/rate") => HandleRate(req),
+            ("POST", "/scrub") => HandleScrub(req),
+            ("POST", "/stop") => HandleStop(req),
             ("POST", "/feedback") => RtspResponse.Ok(req),
             ("POST", "/audioMode") => RtspResponse.Ok(req),
             ("GET_PARAMETER", _) => HandleGetParameter(req),
             ("SET_PARAMETER", _) => HandleSetParameter(req),
             ("FLUSH", _) => RtspResponse.Ok(req),
-            ("POST", "/rate") => RtspResponse.Ok(req),
             _ => Unhandled(req)
         };
     }
@@ -217,6 +229,93 @@ public sealed class AirPlaySession : IDisposable
         r.Headers["Public"] = "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, TEARDOWN, " +
                               "OPTIONS, GET_PARAMETER, SET_PARAMETER, POST, GET";
         return r;
+    }
+
+    private RtspResponse HandlePlay(RtspRequest req)
+    {
+        Log.Info(Tag, "POST /play received");
+        var plist = PlistHelper.Parse(req.Body);
+        string? location = null;
+        float startPos = 0f;
+        string? uuid = null;
+        string? clientProcName = null;
+
+        if (plist != null)
+        {
+            location = plist.GetString("Content-Location");
+            startPos = (float)(plist.GetDouble("Start-Position-Seconds") ?? 0.0);
+            uuid = plist.GetString("uuid");
+            clientProcName = plist.GetString("clientProcName");
+        }
+
+        if (string.IsNullOrEmpty(location))
+        {
+            if (req.Headers.TryGetValue("Content-Location", out var locHeader))
+                location = locHeader;
+            else if (req.Body.Length > 0)
+            {
+                var text = System.Text.Encoding.UTF8.GetString(req.Body);
+                var match = System.Text.RegularExpressions.Regex.Match(text, @"Content-Location:\s*(.+)");
+                if (match.Success) location = match.Groups[1].Value.Trim();
+            }
+        }
+
+        location ??= "http://localhost/airplay-stream";
+        _mediaSession = new MediaSession(location, startPos)
+        {
+            Uuid = uuid,
+            ClientProcName = clientProcName
+        };
+
+        Log.Info(Tag, $"Media Play: location={location}, startPos={startPos}s, client={clientProcName}");
+        MediaPlayStarted?.Invoke(_mediaSession);
+
+        var r = RtspResponse.Ok(req);
+        if (req.Headers.TryGetValue("X-Apple-Session-ID", out var sessId))
+            r.Headers["X-Apple-Session-ID"] = sessId;
+        return r;
+    }
+
+    private RtspResponse HandlePlaybackInfo(RtspRequest req)
+    {
+        _mediaSession ??= new MediaSession("http://localhost/airplay-stream");
+        var xml = _mediaSession.BuildPlaybackInfoXml();
+        var bytes = System.Text.Encoding.UTF8.GetBytes(xml);
+
+        var r = RtspResponse.Ok(req);
+        r.Body = bytes;
+        r.Headers["Content-Type"] = "text/x-apple-plist+xml";
+        return r;
+    }
+
+    private RtspResponse HandleRate(RtspRequest req)
+    {
+        var rateStr = req.GetQueryParam("value") ?? "1.0";
+        if (float.TryParse(rateStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var rate))
+        {
+            if (_mediaSession != null) _mediaSession.Rate = rate;
+            Log.Info(Tag, $"Media rate changed: {rate}");
+        }
+        return RtspResponse.Ok(req);
+    }
+
+    private RtspResponse HandleScrub(RtspRequest req)
+    {
+        var posStr = req.GetQueryParam("position") ?? "0.0";
+        if (float.TryParse(posStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pos))
+        {
+            if (_mediaSession != null) _mediaSession.PositionSeconds = pos;
+            Log.Info(Tag, $"Media scrubbed to: {pos}s");
+        }
+        return RtspResponse.Ok(req);
+    }
+
+    private RtspResponse HandleStop(RtspRequest req)
+    {
+        Log.Info(Tag, "POST /stop received");
+        _mediaSession = null;
+        MediaPlayStopped?.Invoke();
+        return RtspResponse.Ok(req);
     }
 
     /// <summary>

@@ -41,6 +41,8 @@ public sealed class AirPlayServer : IDisposable
     public IPAddress? LastClientAddress { get; private set; }
 
     public event Action<MirrorStreamReceiver>? MirrorStarted;
+    public event Action<MediaSession>? MediaPlayStarted;
+    public event Action? MediaPlayStopped;
     public event Action<string>? SessionStateChanged;
 
     public AirPlayServer(DeviceIdentity identity, IPAddress bindAddress, AppSettings settings)
@@ -113,6 +115,19 @@ public sealed class AirPlayServer : IDisposable
                 LastClientAddress = session.RemoteAddress;
                 SessionStateChanged?.Invoke("Mirroring");
                 MirrorStarted?.Invoke(r);
+            };
+
+            session.MediaPlayStarted += m =>
+            {
+                LastClientAddress = session.RemoteAddress;
+                SessionStateChanged?.Invoke("Media Streaming: " + (m.ClientProcName ?? "YouTube"));
+                MediaPlayStarted?.Invoke(m);
+            };
+
+            session.MediaPlayStopped += () =>
+            {
+                SessionStateChanged?.Invoke("Idle");
+                MediaPlayStopped?.Invoke();
             };
 
             session.Ended += s =>
