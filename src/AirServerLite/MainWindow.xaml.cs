@@ -224,25 +224,6 @@ public partial class MainWindow : Window
             Placeholder.Visibility = Visibility.Collapsed;
             SetStatus($"Media Streaming: {session.ClientProcName ?? "YouTube"}", ready: true);
             Log.Info(LogTag, $"AirPlay Media streaming: {session.ContentLocation}");
-
-            if (!string.IsNullOrEmpty(session.ContentLocation) &&
-                Uri.TryCreate(session.ContentLocation, UriKind.Absolute, out var uri) &&
-                (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
-            {
-                try
-                {
-                    MediaVideoPlayer.Source = uri;
-                    MediaVideoPlayer.Volume = _currentVolume;
-                    MediaVideoPlayer.Position = TimeSpan.FromSeconds(session.PositionSeconds);
-                    MediaVideoPlayer.Play();
-                    MediaVideoPlayer.Visibility = Visibility.Visible;
-                    VideoImage.Visibility = Visibility.Collapsed;
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn(LogTag, $"Failed to play media location: {ex.Message}");
-                }
-            }
         });
     }
 
@@ -250,14 +231,6 @@ public partial class MainWindow : Window
     {
         Dispatcher.BeginInvoke(() =>
         {
-            try
-            {
-                MediaVideoPlayer.Stop();
-                MediaVideoPlayer.Source = null;
-                MediaVideoPlayer.Visibility = Visibility.Collapsed;
-                VideoImage.Visibility = Visibility.Visible;
-            }
-            catch { }
             SetStatus("Media stopped", ready: true);
         });
     }
@@ -548,8 +521,6 @@ public partial class MainWindow : Window
         _currentVolume = (float)e.NewValue;
         if (SliderHudVolume != null && Math.Abs(SliderHudVolume.Value - _currentVolume) > 0.01)
             SliderHudVolume.Value = _currentVolume;
-        if (MediaVideoPlayer != null)
-            MediaVideoPlayer.Volume = _currentVolume;
         _server?.BroadcastAudioVolume(_currentVolume);
     }
 
@@ -558,8 +529,6 @@ public partial class MainWindow : Window
         _currentVolume = (float)e.NewValue;
         if (SliderVolume != null && Math.Abs(SliderVolume.Value - _currentVolume) > 0.01)
             SliderVolume.Value = _currentVolume;
-        if (MediaVideoPlayer != null)
-            MediaVideoPlayer.Volume = _currentVolume;
         _server?.BroadcastAudioVolume(_currentVolume);
     }
 

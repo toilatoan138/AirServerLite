@@ -20,12 +20,15 @@ namespace AirServerLite.Discovery;
 /// </summary>
 public sealed class MdnsAdvertiser : IDisposable
 {
-    // features bitfield, low,high. 0x5A7FFFF7 advertises: video (bit 0), photo (bit 1),
+    // features bitfield, low,high. 0x5A7FFFE2 advertises: photo (bit 1),
     // screen mirroring (bit 7), screen rotation (bit 8), audio (bit 9), audio redundancy (bit 11),
     // FairPlay v3, "unified advertiser info", legacy pairing.
-    // This full bitmask ensures the receiver is visible in both iOS Screen Mirroring and YouTube/in-app AirPlay menus.
-    public const string Features = "0x5A7FFFF7,0x1E";
-    public const long FeaturesInt = 0x1E5A7FFFF7L;
+    // Bit 0 (Video) and Bit 4 (HLS) are deliberately masked out (0x5A7FFFE2 instead of 0x5A7FFFF7).
+    // This prevents iOS/YouTube from attempting in-app AirPlay video handoff (mlhls:// over PTTH)
+    // which fails due to FairPlay/Widevine DRM and causes black screens or dropped mirror sessions.
+    // With these bits masked out, YouTube video & audio stream seamlessly via Screen Mirroring at 1080p 60fps.
+    public const string Features = "0x5A7FFFE2,0x1E";
+    public const long FeaturesInt = 0x1E5A7FFFE2L;
 
     private readonly DeviceIdentity _identity;
     private readonly IPAddress _address;

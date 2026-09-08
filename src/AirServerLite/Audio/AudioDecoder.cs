@@ -60,11 +60,20 @@ public sealed unsafe class AudioDecoder : IDisposable
             _packet->size = input.Length;
 
             var send = ffmpeg.avcodec_send_packet(_ctx, _packet);
-            if (send < 0 && send != ffmpeg.AVERROR(ffmpeg.EAGAIN)) return false;
+            if (send < 0 && send != ffmpeg.AVERROR(ffmpeg.EAGAIN))
+            {
+                Log.Trace(Tag, $"avcodec_send_packet error {send}");
+                return false;
+            }
 
             var receive = ffmpeg.avcodec_receive_frame(_ctx, _frame);
-            if (receive == ffmpeg.AVERROR(ffmpeg.EAGAIN) || receive == ffmpeg.AVERROR_EOF || receive < 0)
+            if (receive == ffmpeg.AVERROR(ffmpeg.EAGAIN) || receive == ffmpeg.AVERROR_EOF)
                 return false;
+            if (receive < 0)
+            {
+                Log.Trace(Tag, $"avcodec_receive_frame error {receive}");
+                return false;
+            }
 
             try
             {
