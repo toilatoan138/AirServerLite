@@ -75,8 +75,15 @@ public sealed class InputRouter : IDisposable
         // later leaves the video rect.
         _ = Task.Run(async () =>
         {
-            var size = await _wda.GetWindowSizeAsync().ConfigureAwait(false);
-            if (size is not null) _pressDevicePoint = _mapper.ToDevicePoint(controlPoint, size);
+            try
+            {
+                var size = await _wda.GetWindowSizeAsync().ConfigureAwait(false);
+                if (size is not null) _pressDevicePoint = _mapper.ToDevicePoint(controlPoint, size);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug(Tag, $"Failed to query window size on mouse down: {ex.Message}");
+            }
         });
     }
 

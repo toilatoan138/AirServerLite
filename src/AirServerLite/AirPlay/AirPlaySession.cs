@@ -196,9 +196,11 @@ public sealed class AirPlaySession : IDisposable
         return (req.Method.ToUpperInvariant(), path) switch
         {
             ("GET", "/info") => HandleInfo(req),
+            ("GET", "/server-info") => HandleServerInfo(req),
             ("POST", "/pair-setup") => HandlePairSetup(req),
             ("POST", "/pair-verify") => HandlePairVerify(req),
             ("POST", "/fp-setup") => HandleFpSetup(req),
+            ("POST", "/reverse") => HandleReverse(req),
             ("SETUP", _) => HandleSetup(req),
             ("RECORD", _) => HandleRecord(req),
             ("TEARDOWN", _) => HandleTeardown(req),
@@ -208,6 +210,9 @@ public sealed class AirPlaySession : IDisposable
             ("POST", "/rate") => HandleRate(req),
             ("POST", "/scrub") => HandleScrub(req),
             ("POST", "/stop") => HandleStop(req),
+            ("PUT", "/setProperty") => RtspResponse.Ok(req),
+            ("POST", "/getProperty") => HandleGetProperty(req),
+            ("POST", "/action") => RtspResponse.Ok(req),
             ("POST", "/feedback") => RtspResponse.Ok(req),
             ("POST", "/audioMode") => RtspResponse.Ok(req),
             ("GET_PARAMETER", _) => HandleGetParameter(req),
@@ -223,6 +228,66 @@ public sealed class AirPlaySession : IDisposable
         return RtspResponse.Ok(req);
     }
 
+    private RtspResponse HandleServerInfo(RtspRequest req)
+    {
+        Log.Info(Tag, "GET /server-info received");
+        var xml = $"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>deviceid</key>
+                <string>{_identity.DeviceId}</string>
+                <key>features</key>
+                <integer>130367356919</integer>
+                <key>model</key>
+                <string>{DeviceIdentity.ModelName}</string>
+                <key>name</key>
+                <string>{_identity.Name}</string>
+                <key>protovers</key>
+                <string>1.1</string>
+                <key>srcvers</key>
+                <string>{DeviceIdentity.SourceVersion}</string>
+                <key>statusFlags</key>
+                <integer>68</integer>
+                <key>pi</key>
+                <string>{_identity.PairingUuid}</string>
+                <key>vv</key>
+                <integer>2</integer>
+            </dict>
+            </plist>
+            """;
+        var r = RtspResponse.Ok(req);
+        r.Body = System.Text.Encoding.UTF8.GetBytes(xml);
+        r.Headers["Content-Type"] = "text/x-apple-plist+xml";
+        return r;
+    }
+
+    private static RtspResponse HandleReverse(RtspRequest req)
+    {
+        Log.Info(Tag, "POST /reverse received - upgrading connection");
+        var r = RtspResponse.Status(req, 101, "Switching Protocols");
+        r.Headers["Upgrade"] = "PTTH/1.0";
+        r.Headers["Connection"] = "Upgrade";
+        return r;
+    }
+
+    private static RtspResponse HandleGetProperty(RtspRequest req)
+    {
+        Log.Info(Tag, $"POST /getProperty received: {req.Path}");
+        const string xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict/>
+            </plist>
+            """;
+        var r = RtspResponse.Ok(req);
+        r.Body = System.Text.Encoding.UTF8.GetBytes(xml);
+        r.Headers["Content-Type"] = "text/x-apple-plist+xml";
+        return r;
+    }
+
     private RtspResponse HandleOptions(RtspRequest req)
     {
         var r = RtspResponse.Ok(req);
@@ -234,6 +299,14 @@ public sealed class AirPlaySession : IDisposable
     private RtspResponse HandlePlay(RtspRequest req)
     {
         Log.Info(Tag, "POST /play received");
+        if (req.Body.Length > 0)
+        {
+            try
+            {
+                Log.Debug(Tag, $"POST /play body ({req.Body.Length}B): {System.Text.Encoding.UTF8.GetString(req.Body)}");
+            }
+            catch { }
+        }
         var plist = PlistHelper.Parse(req.Body);
         string? location = null;
         float startPos = 0f;
