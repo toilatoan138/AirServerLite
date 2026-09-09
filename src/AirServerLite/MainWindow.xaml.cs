@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     private DialServer? _dialServer;
     private MiracastServer? _miracastServer;
     private MiracastRtpReceiver? _miracastReceiver;
+    private Audio.AudioPlayer? _androidAudioPlayer;
     private AirPlayServer? _server;
     private VideoPipeline? _pipeline;
     private WriteableBitmap? _bitmap;
@@ -64,6 +65,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        var hw = HardwareDetector.Detect();
+        _rtxSettings = HardwareDetector.GetRecommendedSettings(hw);
+        Log.Info(LogTag, $"Hardware detected: {hw.DisplaySummary} (Tier: {hw.Tier}) -> Preset: {_rtxSettings.Profile}");
 
         _settings = AppSettings.Load();
         Log.MinLevel = _settings.ParsedLogLevel;
@@ -275,10 +280,12 @@ public partial class MainWindow : Window
                 _miracastReceiver?.Dispose();
                 _miracastServer?.Stop();
                 _miracastServer?.Dispose();
+                _androidAudioPlayer?.Dispose();
             }
             catch { }
             _miracastReceiver = null;
             _miracastServer = null;
+            _androidAudioPlayer = null;
             _isAndroidSession = false;
 
             _mdns?.Dispose();
@@ -359,7 +366,10 @@ public partial class MainWindow : Window
         {
             _miracastReceiver?.Stop();
             _miracastReceiver?.Dispose();
-            _miracastReceiver = new MiracastRtpReceiver(port, _pipeline);
+            _androidAudioPlayer?.Dispose();
+            _androidAudioPlayer = new Audio.AudioPlayer();
+            _androidAudioPlayer.Volume = _currentVolume;
+            _miracastReceiver = new MiracastRtpReceiver(port, _pipeline, _androidAudioPlayer);
             _miracastReceiver.Start();
         }
 
@@ -379,6 +389,8 @@ public partial class MainWindow : Window
         _miracastReceiver?.Stop();
         _miracastReceiver?.Dispose();
         _miracastReceiver = null;
+        _androidAudioPlayer?.Dispose();
+        _androidAudioPlayer = null;
         _isAndroidSession = false;
 
         Dispatcher.BeginInvoke(() =>
@@ -437,10 +449,12 @@ public partial class MainWindow : Window
             TxtRtxHudFps.Text = _rtxSettings.EnableMotionInterpolation ? "120.0 FPS [MEMC]" : "60.0 FPS";
         }
 
-        string hwMode = _pipeline.RtxSettings.EnableMotionInterpolation ? "24T MEMC" : "Stock";
+        var hw = HardwareDetector.Detect();
+        string hwMode = _pipeline.RtxSettings.EnableMotionInterpolation ? $"{_pipeline.RtxSettings.CpuThreadCount}T MEMC" : "Stock";
         string nisTag = _rtxSettings.EnableNvidiaImageScaling ? $"NIS {_rtxSettings.Sharpness:P0}" : "Raw";
         string vibTag = _rtxSettings.EnableRtxDigitalVibrance ? $" | Vib +{_rtxSettings.VibranceBoost * 100:F0}%" : "";
-        TxtRtxHudDetail.Text = $"RTX 4060 | {hwMode} | {nisTag}{vibTag}";
+        string shortGpu = hw.GpuName.Replace("NVIDIA GeForce ", "").Replace("AMD Radeon ", "").Replace("Intel(R) ", "");
+        TxtRtxHudDetail.Text = $"{shortGpu} | {hwMode} | {nisTag}{vibTag}";
     }
 
     private async Task EnsureWebView2InitializedAsync()
@@ -991,6 +1005,8 @@ public partial class MainWindow : Window
         if (SliderVolume != null && Math.Abs(SliderVolume.Value - _currentVolume) > 0.01)
             SliderVolume.Value = _currentVolume;
         _server?.BroadcastAudioVolume(_currentVolume);
+        if (_androidAudioPlayer != null)
+            _androidAudioPlayer.Volume = _currentVolume;
 
         if (WebPlayer?.CoreWebView2 != null)
         {

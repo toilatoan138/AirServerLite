@@ -24,7 +24,7 @@ public sealed class AudioPlayer : IDisposable
     private const string Tag = "audio-play";
     private const int BufferCount = 24;
     private const int BufferSize = 4096; // Capacity per slot
-    private const int RampSamples = 32;
+    private const int RampSamples = 32; // ~0.7ms de-click fade, applied only when resuming after a real gap
 
     private const uint WHDR_DONE = 0x00000001;
     private const uint WHDR_PREPARED = 0x00000002;
@@ -112,6 +112,15 @@ public sealed class AudioPlayer : IDisposable
     private bool _needsRampIn = true;
     private long _played;
     private long _underruns;
+
+    // Packet-loss concealment: a copy of the last real frame played, faded into the start of
+    // a gap so a dropout tails off instead of cutting to hard silence. Touched only by the
+    // pump thread.
+    private readonly byte[] _lastRealFrame = new byte[BufferSize];
+    private readonly byte[] _concealmentBuf = new byte[BufferSize];
+    private int _lastRealFrameLen;
+    private bool _haveLastRealFrame;
+    private bool _concealmentUsedThisGap;
 
     public float Volume
     {
@@ -201,7 +210,10 @@ public sealed class AudioPlayer : IDisposable
         }
     }
 
-    private const int TargetInFlightBuffers = 6; // ~65ms audio queued in waveOut driver (absorbs WiFi jitter)
+    // Ceiling on waveOut's own queue depth (~65ms). Kept deliberately shallow so audio does
+    // not drift behind the low-latency video path; smoothness is bought with concealment on
+    // the rare real gap, not with a deeper buffer.
+    private const int TargetInFlightBuffers = 6;
     private static readonly byte[] SilenceFrame = new byte[1920]; // 10.9ms comfort silence for underruns
 
     private int CountInFlightBuffers()
@@ -237,6 +249,14 @@ public sealed class AudioPlayer : IDisposable
                 // Check if jitter buffer is ready (primed)
                 if (!jitter.IsPrimed)
                 {
+                    // Keep just enough silence in the driver that its clock never fully stops
+                    // (a drained waveOut device restarts with a click). Two frames ≈ 22ms - the
+                    // minimum cushion, so re-prime adds almost nothing to resume latency.
+                    int deficit;
+                    lock (_lock)
+                        deficit = (_disposed || _hWaveOut == IntPtr.Zero) ? 0 : 2 - CountInFlightBuffers();
+                    if (deficit > 0) SubmitSilenceBuffers(deficit);
+
                     _needsRampIn = true;
                     // Wait briefly for packets to accumulate
                     Thread.Sleep(5);
@@ -307,6 +327,13 @@ public sealed class AudioPlayer : IDisposable
 
                         SubmitBuffer(chosen, frame.Data, frame.Length);
                         Interlocked.Increment(ref _played);
+
+                        // Keep this frame for concealment if the stream stalls next.
+                        int keep = Math.Min(frame.Length, BufferSize);
+                        Buffer.BlockCopy(frame.Data, 0, _lastRealFrame, 0, keep);
+                        _lastRealFrameLen = keep;
+                        _haveLastRealFrame = true;
+                        _concealmentUsedThisGap = false;
                     }
                     finally
                     {
@@ -315,14 +342,28 @@ public sealed class AudioPlayer : IDisposable
                 }
                 else
                 {
-                    // Underrun — hardware is waiting but jitter buffer is dry
-                    _needsRampIn = true;
-                    Interlocked.Increment(ref _underruns);
-
-                    // If driver queue is completely empty (inFlight == 0), feed comfort silence to keep DAC clock running smoothly
+                    // The jitter buffer is momentarily dry. As long as the driver still has
+                    // audio queued the listener hears nothing wrong, so do NOT arm a fade-in
+                    // here - re-ramping on every little Wi-Fi ripple is exactly what makes the
+                    // sound throb ("bập bùng").
                     if (inFlight == 0)
                     {
-                        SubmitBuffer(chosen, SilenceFrame, SilenceFrame.Length);
+                        // A real gap the listener would hear. Tail the last real frame down to
+                        // silence once, then hold on comfort silence - a faded repeat masks a
+                        // one-packet dropout far better than an abrupt cut, and costs no latency.
+                        if (_haveLastRealFrame && _lastRealFrameLen > 0 && !_concealmentUsedThisGap)
+                        {
+                            BuildConcealmentFrame();
+                            SubmitBuffer(chosen, _concealmentBuf, _lastRealFrameLen);
+                            _concealmentUsedThisGap = true;
+                            SubmitSilenceBuffers(1);
+                        }
+                        else
+                        {
+                            SubmitSilenceBuffers(2);
+                        }
+                        _needsRampIn = true;
+                        Interlocked.Increment(ref _underruns);
                     }
 
                     // Wait briefly for sound card event or new data
@@ -338,6 +379,61 @@ public sealed class AudioPlayer : IDisposable
         finally
         {
             Log.Info(Tag, $"Audio pump ended (played={_played}, underruns={_underruns})");
+        }
+    }
+
+    /// <summary>
+    /// Push up to <paramref name="count"/> frames of digital silence straight into the driver
+    /// queue to bridge a real underrun. A stopped waveOut device resumes with a click, so the
+    /// clock must never actually run out.
+    /// </summary>
+    private int SubmitSilenceBuffers(int count)
+    {
+        int submitted = 0;
+        for (int n = 0; n < count; n++)
+        {
+            int slot = -1;
+            lock (_lock)
+            {
+                if (_disposed || _hWaveOut == IntPtr.Zero) break;
+                for (int i = 0; i < BufferCount; i++)
+                {
+                    var candidate = (_nextBuffer + i) % BufferCount;
+                    if (_headerPtrs[candidate] == IntPtr.Zero) continue;
+                    uint flags = (uint)Marshal.ReadInt32(_headerPtrs[candidate], FlagsOffset);
+                    if ((flags & WHDR_INQUEUE) == 0) { slot = candidate; break; }
+                }
+            }
+            if (slot < 0) break;
+            SubmitBuffer(slot, SilenceFrame, SilenceFrame.Length);
+            submitted++;
+        }
+        return submitted;
+    }
+
+    /// <summary>
+    /// Fill <see cref="_concealmentBuf"/> with the last real frame ramped from ~60% down to
+    /// silence across its length, so a dropout fades out instead of cutting.
+    /// </summary>
+    private void BuildConcealmentFrame()
+    {
+        int pairs = _lastRealFrameLen / 4; // 16-bit stereo
+        if (pairs <= 0) { _lastRealFrameLen = 0; return; }
+
+        for (int i = 0; i < pairs; i++)
+        {
+            float gain = 0.6f * (1f - (float)i / pairs);
+            int o = i * 4;
+
+            short l = (short)(_lastRealFrame[o] | (_lastRealFrame[o + 1] << 8));
+            short r = (short)(_lastRealFrame[o + 2] | (_lastRealFrame[o + 3] << 8));
+            l = (short)(l * gain);
+            r = (short)(r * gain);
+
+            _concealmentBuf[o] = (byte)(l & 0xFF);
+            _concealmentBuf[o + 1] = (byte)((l >> 8) & 0xFF);
+            _concealmentBuf[o + 2] = (byte)(r & 0xFF);
+            _concealmentBuf[o + 3] = (byte)((r >> 8) & 0xFF);
         }
     }
 
@@ -438,6 +534,32 @@ public sealed class AudioPlayer : IDisposable
         {
             float factor = (float)i / samplePairs;
             int offset = i * 4;
+
+            short left = (short)(pcm[offset] | (pcm[offset + 1] << 8));
+            short right = (short)(pcm[offset + 2] | (pcm[offset + 3] << 8));
+
+            left = (short)(left * factor);
+            right = (short)(right * factor);
+
+            pcm[offset] = (byte)(left & 0xFF);
+            pcm[offset + 1] = (byte)((left >> 8) & 0xFF);
+            pcm[offset + 2] = (byte)(right & 0xFF);
+            pcm[offset + 3] = (byte)((right >> 8) & 0xFF);
+        }
+    }
+
+    /// <summary>
+    /// Smooth raised-cosine ramp-out over the final samples of an underrun buffer
+    /// to eliminate DC-offset step pops and speaker cracking.
+    /// </summary>
+    public static void ApplySmoothRampOut(byte[] pcm, int length, int rampSamples)
+    {
+        int samplePairs = Math.Min(rampSamples, length / 4);
+        int startIndex = (length / 4) - samplePairs;
+        for (int i = 0; i < samplePairs; i++)
+        {
+            float factor = 0.5f * (1.0f + (float)Math.Cos(Math.PI * (i + 1) / samplePairs));
+            int offset = (startIndex + i) * 4;
 
             short left = (short)(pcm[offset] | (pcm[offset + 1] << 8));
             short right = (short)(pcm[offset + 2] | (pcm[offset + 3] << 8));

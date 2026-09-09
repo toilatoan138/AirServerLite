@@ -27,6 +27,10 @@ public partial class RtxFidelityDialog : Window
         _suppressEvents = true;
         try
         {
+            var hw = HardwareDetector.Detect();
+            TxtDialogTitle.Text = $"⚡ {hw.GpuName} & {hw.CpuName}";
+            TxtHwBadge.Text = $"✓ {hw.GpuName} ({hw.CpuLogicalCores}T) ĐÃ SẴN SÀNG";
+
             switch (s.Profile)
             {
                 case RtxProfileMode.RtxUltraFidelity:

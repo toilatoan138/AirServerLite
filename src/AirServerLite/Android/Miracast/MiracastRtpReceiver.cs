@@ -18,6 +18,7 @@ public sealed class MiracastRtpReceiver : IDisposable
     private readonly VideoPipeline _videoPipeline;
     private readonly AudioPlayer? _audioPlayer;
     private readonly MpegTsDemuxer _demuxer = new();
+    private AacAudioDecoder? _audioDecoder;
 
     private UdpClient? _udp;
     private CancellationTokenSource? _cts;
@@ -28,6 +29,10 @@ public sealed class MiracastRtpReceiver : IDisposable
         _port = port;
         _videoPipeline = videoPipeline;
         _audioPlayer = audioPlayer;
+        if (_audioPlayer != null)
+        {
+            try { _audioDecoder = new AacAudioDecoder(); } catch { }
+        }
     }
 
     public static byte[] ExtractRtpPayload(byte[] packet)
@@ -74,6 +79,19 @@ public sealed class MiracastRtpReceiver : IDisposable
                         Timestamp = (ulong)Environment.TickCount64
                     });
                 }
+
+                if (_audioPlayer != null && _audioDecoder != null && demux.AudioPackets.Count > 0)
+                {
+                    foreach (var audioPkt in demux.AudioPackets)
+                    {
+                        if (_audioDecoder.TryDecode(audioPkt, out var pcm, out var sampleRate))
+                        {
+                            if (sampleRate != 44100)
+                                pcm = Audio.AudioResampler.ResampleStereo16(pcm, sampleRate, 44100);
+                            _audioPlayer.PlayPcm(pcm, pcm.Length);
+                        }
+                    }
+                }
             }
             catch when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
@@ -95,5 +113,7 @@ public sealed class MiracastRtpReceiver : IDisposable
     {
         _disposed = true;
         Stop();
+        _audioDecoder?.Dispose();
+        _audioDecoder = null;
     }
 }

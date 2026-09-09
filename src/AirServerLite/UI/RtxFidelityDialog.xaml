@@ -22,7 +22,7 @@
         <!-- Header -->
         <StackPanel Grid.Row="0" Margin="0,0,0,14">
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                <TextBlock Text="⚡ NVIDIA RTX 4060 &amp; Intel Core i7-14650HX Fidelity Engine"
+                <TextBlock x:Name="TxtDialogTitle" Text="⚡ Universal GPU &amp; Multi-Core CPU Fidelity Engine"
                            FontSize="16" FontWeight="Bold" Foreground="#FF76B900"/>
             </StackPanel>
             <TextBlock Text="Khai thác tối đa sức mạnh phần cứng GPU và CPU đa nhân để đạt chất lượng hình ảnh sắc nét chuẩn điện ảnh và độ mượt mà 120 FPS."
@@ -129,9 +129,9 @@
 
         <!-- Footer Actions -->
         <DockPanel Grid.Row="2" LastChildFill="False">
-            <Border Background="#2676B900" BorderBrush="#FF76B900" BorderThickness="1"
+            <Border x:Name="BorderHwBadge" Background="#2676B900" BorderBrush="#FF76B900" BorderThickness="1"
                     CornerRadius="4" Padding="8,4" DockPanel.Dock="Left" VerticalAlignment="Center">
-                <TextBlock Text="✓ RTX 4060 &amp; i7-14650HX ĐÃ SẴN SÀNG" FontSize="11" FontWeight="Bold" Foreground="#FF76B900"/>
+                <TextBlock x:Name="TxtHwBadge" Text="✓ PHẦN CỨNG ĐÃ SẴN SÀNG" FontSize="11" FontWeight="Bold" Foreground="#FF76B900"/>
             </Border>
 
             <Button Content="Đóng" Width="90" Click="OnCloseClicked" DockPanel.Dock="Right" Margin="8,0,0,0"/>

@@ -40,6 +40,14 @@ public sealed class AudioJitterBuffer : IDisposable
     private readonly PriorityQueue<AudioFrame, long> _queue = new();
     private readonly object _lock = new();
     private readonly int _preBufferFrames;
+
+    // The first prime waits for the full pre-buffer; a re-prime after a transient gap only
+    // waits for this many, so a hiccup does not turn into a much longer silence. No effect on
+    // steady-state latency - once primed, reads are served the moment a frame is available.
+    private readonly int _rePrimeFrames;
+    private bool _hasEverPrimed;
+    private long _underrunResyncs;
+
     private bool _primed;
     private bool _disposed;
     private ushort _nextExpectedSeq;
@@ -67,8 +75,13 @@ public sealed class AudioJitterBuffer : IDisposable
     public AudioJitterBuffer(int preBufferFrames = 6)
     {
         _preBufferFrames = Math.Max(2, preBufferFrames);
-        Log.Info(Tag, $"Jitter buffer initialized (target={_preBufferFrames} frames ≈ {_preBufferFrames * 10.9:F0}ms, max={MaxCapacity})");
+        _rePrimeFrames = Math.Clamp(_preBufferFrames / 2, 2, _preBufferFrames);
+        Log.Info(Tag, $"Jitter buffer initialized (prime={_preBufferFrames} frames ≈ {_preBufferFrames * 10.9:F0}ms, " +
+                      $"re-prime={_rePrimeFrames}, max={MaxCapacity})");
     }
+
+    /// <summary>Times the buffer has run dry since it was created.</summary>
+    public long UnderrunResyncs => Interlocked.Read(ref _underrunResyncs);
 
     /// <summary>
     /// Legacy constructor accepting an AudioPlayer for backward compatibility.
@@ -186,9 +199,11 @@ public sealed class AudioJitterBuffer : IDisposable
             _queue.Enqueue(frame, unwrappedSeq);
             Interlocked.Increment(ref _written);
 
-            if (!_primed && _queue.Count >= _preBufferFrames)
+            int primeAt = _hasEverPrimed ? _rePrimeFrames : _preBufferFrames;
+            if (!_primed && _queue.Count >= primeAt)
             {
                 _primed = true;
+                _hasEverPrimed = true;
                 Log.Info(Tag, $"Jitter buffer primed ({_queue.Count} frames buffered, starting playback)");
             }
         }
@@ -232,12 +247,14 @@ public sealed class AudioJitterBuffer : IDisposable
             if (_queue.Count == 0)
             {
                 frame = default;
-                // Only unprime if there has been genuine sustained silence (>250ms),
-                // not a momentary 5-10ms WiFi packet arrival gap
+                Interlocked.Increment(ref _underrunResyncs);
+
+                // Only unprime on genuine sustained silence (>250ms), not a momentary
+                // 5-10ms WiFi packet-arrival gap.
                 if ((DateTime.UtcNow - _lastReadTime).TotalMilliseconds > SustainedSilenceMs)
                 {
                     _primed = false;
-                    Log.Debug(Tag, "Sustained audio gap >250ms — pausing for re-priming");
+                    Log.Debug(Tag, $"Sustained audio gap >{SustainedSilenceMs}ms — re-priming to {_rePrimeFrames} frames");
                 }
                 return false;
             }

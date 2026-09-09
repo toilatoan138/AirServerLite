@@ -431,15 +431,20 @@ public sealed class AirPlaySession : IDisposable
     /// </summary>
     private RtspResponse HandleInfo(RtspRequest req)
     {
-        int maxWidth = _settings.Video.MaxWidth > 0 ? _settings.Video.MaxWidth : 2560;
-        int maxHeight = _settings.Video.MaxHeight > 0 ? _settings.Video.MaxHeight : 1440;
+        // AirPlay mirror video encoder on iOS requires 1920x1080 in displays.
+        // If geometry > 1080p is advertised to iOS, iOS attempts to send HEVC without
+        // parameter sets (AirPlay 2 HomeKit DRM profile), breaking legacy RTSP mirroring.
+        // Keep AirPlay negotiation at 1080p60 H.264, and let the PC's RTX Fidelity / NIS / Lanczos
+        // upscale the decoded frames to 2K/4K seamlessly.
+        const int airPlayWidth = 1920;
+        const int airPlayHeight = 1080;
 
         var display = new NSDictionary
         {
-            { "width", maxWidth },
-            { "height", maxHeight },
-            { "widthPixels", maxWidth },
-            { "heightPixels", maxHeight },
+            { "width", airPlayWidth },
+            { "height", airPlayHeight },
+            { "widthPixels", airPlayWidth },
+            { "heightPixels", airPlayHeight },
             { "widthPhysical", 0 },
             { "heightPhysical", 0 },
             { "refreshRate", 60 },
@@ -704,7 +709,9 @@ public sealed class AirPlaySession : IDisposable
                         _audioPlayer.Volume = _volume;
                         _audioPlayer.IsMuted = _isMuted;
 
-                        // Jitter buffer sits between decoder and player to absorb network timing variance
+                        // Jitter buffer sits between decoder and player to absorb network timing
+                        // variance. 6 frames (~65ms) - kept shallow so audio tracks the
+                        // low-latency video path rather than drifting behind it.
                         _audioJitterBuffer = new AudioJitterBuffer(preBufferFrames: 6);
                         _audioPlayer.AttachJitterBuffer(_audioJitterBuffer);
 

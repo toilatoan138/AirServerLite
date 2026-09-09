@@ -73,16 +73,27 @@ public sealed class MotionFrameSynthesizer
                 byte* localDst = (byte*)dstPtr;
 
                 int i = start;
-                int vecSize = Vector256<byte>.Count; // 32 bytes AVX2
 
                 if (Avx2.IsSupported)
                 {
+                    int vecSize = Vector256<byte>.Count; // 32 bytes AVX2
                     for (; i + vecSize <= end; i += vecSize)
                     {
                         var v1 = Avx2.LoadVector256(localPrev + i);
                         var v2 = Avx2.LoadVector256(localNext + i);
                         var vAvg = Avx2.Average(v1, v2);
                         Avx2.Store(localDst + i, vAvg);
+                    }
+                }
+                else if (Sse2.IsSupported)
+                {
+                    int vecSize = Vector128<byte>.Count; // 16 bytes SSE2
+                    for (; i + vecSize <= end; i += vecSize)
+                    {
+                        var v1 = Sse2.LoadVector128(localPrev + i);
+                        var v2 = Sse2.LoadVector128(localNext + i);
+                        var vAvg = Sse2.Average(v1, v2);
+                        Sse2.Store(localDst + i, vAvg);
                     }
                 }
 

@@ -39,6 +39,22 @@ public static class RtxTelemetryFormatter
         return parts.Count > 0 ? string.Join(" | ", parts) : "Stock Raw";
     }
 
+    public static string FormatUniversalHardware(HardwareProfile profile, string decoderMode)
+    {
+        string gpuTag;
+        if (profile.GpuVendor == GpuVendor.Nvidia)
+            gpuTag = $"{profile.GpuName} (NVDEC {decoderMode})";
+        else if (profile.GpuVendor == GpuVendor.Amd)
+            gpuTag = $"{profile.GpuName} (AMF {decoderMode})";
+        else if (profile.GpuVendor == GpuVendor.Intel)
+            gpuTag = $"{profile.GpuName} (QSV {decoderMode})";
+        else
+            gpuTag = $"{profile.GpuName} ({decoderMode})";
+
+        string simdTag = profile.HasAvx2 ? "AVX2" : (profile.HasSse41 ? "SSE4.1" : "SIMD");
+        return $"{gpuTag} | {profile.CpuName} {profile.CpuLogicalCores}T {simdTag}";
+    }
+
     public static string FormatFullSummary(double rawFps, string decoderMode, RtxFidelitySettings settings)
     {
         return $"{FormatFps(rawFps, settings.EnableMotionInterpolation)} | {FormatHardwareInfo(decoderMode, settings.CpuThreadCount)} | {FormatEnhancements(settings)}";
