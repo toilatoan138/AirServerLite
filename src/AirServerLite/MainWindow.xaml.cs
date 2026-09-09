@@ -12,6 +12,9 @@ using System.Windows.Threading;
 using AirServerLite.AirPlay;
 using AirServerLite.AirPlay.Crypto;
 using AirServerLite.AirPlay.Streaming;
+using AirServerLite.Android;
+using AirServerLite.Android.Miracast;
+using AirServerLite.Android.Scrcpy;
 using AirServerLite.Core;
 using AirServerLite.Discovery;
 using AirServerLite.Input;
@@ -31,6 +34,8 @@ public partial class MainWindow : Window
     private DeviceIdentity? _identity;
     private MdnsAdvertiser? _mdns;
     private DialServer? _dialServer;
+    private MiracastServer? _miracastServer;
+    private MiracastRtpReceiver? _miracastReceiver;
     private AirPlayServer? _server;
     private VideoPipeline? _pipeline;
     private WriteableBitmap? _bitmap;
@@ -39,6 +44,7 @@ public partial class MainWindow : Window
     private WdaClient? _wda;
     private InputRouter? _input;
     private IPAddress? _lastClientAddress;
+    private bool _isAndroidSession;
 
     private bool _running;
     private volatile bool _frameWaiting;
@@ -219,6 +225,19 @@ public partial class MainWindow : Window
                 Log.Warn(LogTag, "DIAL server failed to start: " + ex.Message);
             }
 
+            try
+            {
+                _miracastServer = new MiracastServer();
+                _miracastServer.StreamStarted += OnMiracastStreamStarted;
+                _miracastServer.StreamStopped += OnMiracastStreamStopped;
+                _miracastServer.Start();
+                Log.Info(LogTag, "Miracast server active on port 7236");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(LogTag, "Miracast server failed to start: " + ex.Message);
+            }
+
             _running = true;
             BtnStart.Content = "Stop receiver";
             SetStatus($"Advertising on {nic.Address} - waiting for a device", ready: true);
@@ -245,6 +264,18 @@ public partial class MainWindow : Window
             catch { }
             _dialServer = null;
 
+            try
+            {
+                _miracastReceiver?.Stop();
+                _miracastReceiver?.Dispose();
+                _miracastServer?.Stop();
+                _miracastServer?.Dispose();
+            }
+            catch { }
+            _miracastReceiver = null;
+            _miracastServer = null;
+            _isAndroidSession = false;
+
             _mdns?.Dispose();
             _server?.Dispose();
             _pipeline?.Dispose();
@@ -259,6 +290,9 @@ public partial class MainWindow : Window
         finally
         {
             _dialServer = null;
+            _miracastReceiver = null;
+            _miracastServer = null;
+            _isAndroidSession = false;
             _mdns = null;
             _server = null;
             _pipeline = null;
@@ -310,6 +344,54 @@ public partial class MainWindow : Window
             }
             SetStatus("Mirroring", ready: true);
         });
+    }
+
+    private void OnMiracastStreamStarted(int port)
+    {
+        _isAndroidSession = true;
+        if (_pipeline != null)
+        {
+            _miracastReceiver?.Stop();
+            _miracastReceiver?.Dispose();
+            _miracastReceiver = new MiracastRtpReceiver(port, _pipeline);
+            _miracastReceiver.Start();
+        }
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (!_isWebPlayerActive)
+            {
+                Placeholder.Visibility = Visibility.Collapsed;
+                VideoImage.Visibility = Visibility.Visible;
+            }
+            SetStatus("Connected (Android Miracast / Smart View)", ready: true);
+        });
+    }
+
+    private void OnMiracastStreamStopped()
+    {
+        _miracastReceiver?.Stop();
+        _miracastReceiver?.Dispose();
+        _miracastReceiver = null;
+        _isAndroidSession = false;
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (!_isWebPlayerActive)
+            {
+                _bitmap = null;
+                VideoImage.Source = null;
+                VideoImage.Visibility = Visibility.Collapsed;
+                Placeholder.Visibility = Visibility.Visible;
+            }
+            SetStatus(_running ? "Ready - waiting for a device" : "Stopped", ready: _running);
+        });
+    }
+
+    private void OnAndroidGuideClicked(object sender, RoutedEventArgs e)
+    {
+        var dlg = new AndroidConnectDialog { Owner = this };
+        dlg.ShowDialog();
     }
 
     private async Task EnsureWebView2InitializedAsync()
@@ -643,6 +725,13 @@ public partial class MainWindow : Window
     {
         if (ChkInput.IsChecked == true)
         {
+            if (_isAndroidSession)
+            {
+                var dlg = new AndroidConnectDialog { Owner = this };
+                dlg.ShowDialog();
+                return;
+            }
+
             if (_input is not null && _wda is not null && _wda.IsConnected)
             {
                 _input.Enabled = true;

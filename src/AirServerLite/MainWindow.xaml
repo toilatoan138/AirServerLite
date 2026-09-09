@@ -34,6 +34,7 @@
                         VerticalAlignment="Center" ValueChanged="OnVolumeChanged"/>
                 <Rectangle Width="1" Fill="{StaticResource PanelEdge}" Margin="8,2,8,2"/>
                 <Button x:Name="BtnFullscreen" Content="⛶ Fullscreen" Click="OnFullscreenClicked"/>
+                <Button x:Name="BtnAndroidGuide" Content="📱 Kết nối Android" Click="OnAndroidGuideClicked" Margin="6,0,0,0" ToolTip="Hướng dẫn kết nối điện thoại Android (Smart View / Cast / ADB)"/>
                 <Button x:Name="BtnTvCode" Content="📺 Ghép nối TV" Click="OnTvCodeClicked" Margin="6,0,0,0" ToolTip="Mở giao diện YouTube TV có mã số kết nối trực tiếp với điện thoại"/>
                 <Button x:Name="BtnQuickPlay" Content="▶ Link YouTube" Click="OnQuickPlayClicked" Margin="6,0,0,0"/>
                 <Button x:Name="BtnStopMedia" Content="⏹ Dừng phát" Click="OnStopMediaClicked" Visibility="Collapsed" Margin="6,0,0,0"/>
@@ -70,9 +71,9 @@
                     <TextBlock Text="No stream" FontSize="14" HorizontalAlignment="Center"
                                Margin="0,4,0,0" Foreground="{StaticResource TextDim}"/>
                     <TextBlock x:Name="PlaceholderHint" Margin="0,12,0,0" TextAlignment="Center"
-                               TextWrapping="Wrap" MaxWidth="380"
+                               TextWrapping="Wrap" MaxWidth="420"
                                Foreground="{StaticResource TextDim}"
-                               Text="Start the receiver, then pick this device in Control Centre &#8594; Screen Mirroring."/>
+                               Text="Khởi động bộ thu, sau đó chọn thiết bị này trên iPhone (Phản chiếu màn hình) hoặc trên Android (Smart View / Chiếu màn hình)."/>
                 </StackPanel>
 
                 <!-- Cinema Overlay HUD (Fullscreen controls) -->

@@ -1,0 +1,115 @@
+<Window x:Class="AirServerLite.UI.AndroidConnectDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Hướng dẫn kết nối Android lên AirServer-LITE"
+        Icon="pack://application:,,,/Assets/app.ico"
+        Height="620" Width="600"
+        Background="{StaticResource Bg}"
+        Foreground="{StaticResource Text}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display">
+
+    <Grid Margin="20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <TextBlock Text="📱 Kết nối &amp; Phản chiếu màn hình Android" FontSize="17" FontWeight="Bold" Margin="0,0,0,6"/>
+            <TextBlock Text="AirServer-LITE hỗ trợ toàn diện cho mọi thiết bị Android (Samsung, Xiaomi, Oppo, Pixel, v.v.). Chọn phương thức kết nối phù hợp với bạn:"
+                       Foreground="{StaticResource TextDim}" TextWrapping="Wrap" LineHeight="18"/>
+        </StackPanel>
+
+        <!-- Scrollable Options -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,14">
+            <StackPanel>
+                <!-- Option 1: Miracast / Smart View (Zero-Install) -->
+                <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource PanelEdge}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,0,0,12">
+                    <StackPanel>
+                        <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                            <Border Background="#2634D399" BorderBrush="{StaticResource Good}" BorderThickness="1"
+                                    CornerRadius="4" Padding="6,2" DockPanel.Dock="Left">
+                                <TextBlock Text="DỄ NHẤT • KHÔNG CẦN CÀI APP" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource Good}"/>
+                            </Border>
+                            <TextBlock Text="Cách 1: Smart View / Màn hình không dây" FontSize="13.5" FontWeight="SemiBold"
+                                       Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </DockPanel>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" LineHeight="19">
+                            <Run Text="• Samsung Galaxy: " FontWeight="SemiBold"/>
+                            <Run Text="Vuốt từ đỉnh màn hình xuống để mở bảng Cài đặt nhanh ➔ Nhấn "/>
+                            <Run Text="Smart View" FontWeight="SemiBold" Foreground="{StaticResource Good}"/>
+                            <Run Text=" ➔ Chọn "/>
+                            <Run Text="AirServerLite" FontWeight="SemiBold"/>
+                            <Run Text=" để phản chiếu ngay lập tức."/>
+                        </TextBlock>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" LineHeight="19">
+                            <Run Text="• Xiaomi / Redmi / POCO: " FontWeight="SemiBold"/>
+                            <Run Text="Vào Cài đặt nhanh ➔ Bật "/>
+                            <Run Text="Chiếu / Màn hình không dây (Cast)" FontWeight="SemiBold" Foreground="{StaticResource Good}"/>
+                            <Run Text=" ➔ Chọn tên máy tính để phát màn hình."/>
+                        </TextBlock>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" LineHeight="19">
+                            <Run Text="• Oppo / Realme / Vivo: " FontWeight="SemiBold"/>
+                            <Run Text="Mở Cài đặt nhanh ➔ Nhấn biểu tượng "/>
+                            <Run Text="Phát màn hình (Screencast)" FontWeight="SemiBold" Foreground="{StaticResource Good}"/>
+                            <Run Text="."/>
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+
+                <!-- Option 2: High Performance Reverse Control (Scrcpy / ADB) -->
+                <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource PanelEdge}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,0,0,12">
+                    <StackPanel>
+                        <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                            <Border Background="#2660A5FA" BorderBrush="#FF60A5FA" BorderThickness="1"
+                                    CornerRadius="4" Padding="6,2" DockPanel.Dock="Left">
+                                <TextBlock Text="ĐỘ TRỄ THẤP &lt;30MS • ĐIỀU KHIỂN CHUỘT &amp; PHÍM" FontSize="10.5" FontWeight="Bold" Foreground="#FF60A5FA"/>
+                            </Border>
+                            <TextBlock Text="Cách 2: Điều khiển Chuột &amp; Bàn phím qua ADB" FontSize="13.5" FontWeight="SemiBold"
+                                       Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </DockPanel>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" LineHeight="19">
+                            <Run Text="• Bước 1: " FontWeight="SemiBold"/>
+                            <Run Text="Mở điện thoại Android ➔ Cài đặt ➔ Thông tin thiết bị ➔ Nhấn 7 lần vào "/>
+                            <Run Text="Số hiệu bản dựng (Build Number)" FontWeight="SemiBold"/>
+                            <Run Text=" để mở Menu Nhà phát triển."/>
+                        </TextBlock>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" LineHeight="19">
+                            <Run Text="• Bước 2: " FontWeight="SemiBold"/>
+                            <Run Text="Vào Tùy chọn nhà phát triển ➔ Bật "/>
+                            <Run Text="Gỡ lỗi USB (USB Debugging)" FontWeight="SemiBold" Foreground="#FF60A5FA"/>
+                            <Run Text=" hoặc "/>
+                            <Run Text="Gỡ lỗi không dây (Wireless Debugging)" FontWeight="SemiBold" Foreground="#FF60A5FA"/>
+                            <Run Text="."/>
+                        </TextBlock>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" LineHeight="19">
+                            <Run Text="• Thao tác chuột: " FontWeight="SemiBold"/>
+                            <Run Text="Click chuột trái = Chạm / vuốt màn hình; Click chuột phải = Nút Quay lại (Back); Click chuột giữa = Nút Home; Lăn chuột = Cuộn trang."/>
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer Buttons -->
+        <DockPanel Grid.Row="2" LastChildFill="False">
+            <Button Content="Đóng" Width="90" Height="30" DockPanel.Dock="Right"
+                    Background="{StaticResource Accent}" Foreground="#FFFFFFFF" BorderThickness="0"
+                    Cursor="Hand" Click="CloseButton_Click"/>
+        </DockPanel>
+    </Grid>
+</Window>
