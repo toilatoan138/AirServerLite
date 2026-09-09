@@ -12,7 +12,7 @@ namespace AirServerLite.Audio;
 /// </summary>
 public static class AudioEnhancer
 {
-    public static bool Enabled { get; set; } = true;
+    public static bool Enabled { get; set; } = false;
 
     // Filter states for Left and Right channels
     private static float _x1L, _x2L, _y1L, _y2L;

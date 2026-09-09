@@ -203,12 +203,6 @@ public sealed class MirrorStreamReceiver : IDisposable
                                       Log.Hex(paramSets, Math.Min(paramSets.Length, 32)));
                         _cachedParameterSets = paramSets;
                         _prependParameterSets = true;
-                        PacketReady?.Invoke(new VideoPacket
-                        {
-                            Data = paramSets,
-                            Timestamp = timestamp,
-                            IsParameterSet = true
-                        });
                     }
                     else
                     {
@@ -222,7 +216,8 @@ public sealed class MirrorStreamReceiver : IDisposable
                     break;
 
                 default:
-                    Log.Debug(Tag, $"Ignoring payload type {payloadType} ({payloadSize} bytes)");
+                    Log.Debug(Tag, $"Received mirror packet type {payloadType} ({payloadSize} bytes, flags=0x{header[5]:X2}): " +
+                                  Log.Hex(payload, Math.Min(payload.Length, 32)));
                     break;
             }
 

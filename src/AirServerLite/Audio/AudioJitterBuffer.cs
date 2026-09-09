@@ -37,14 +37,19 @@ public sealed class AudioJitterBuffer : IDisposable
         }
     }
 
-    private readonly PriorityQueue<AudioFrame, ushort> _queue = new();
-    private readonly HashSet<ushort> _recentSeqs = new();
+    private readonly PriorityQueue<AudioFrame, long> _queue = new();
     private readonly object _lock = new();
     private readonly int _preBufferFrames;
     private bool _primed;
     private bool _disposed;
     private ushort _nextExpectedSeq;
     private bool _hasExpectedSeq;
+    private long _lastUnwrappedSeq;
+    private ushort _lastRawSeq;
+    private bool _hasLastRawSeq;
+    private ushort _maxSeq;
+    private ulong _seenMask;
+    private bool _hasMaxSeq;
     private long _written;
     private long _read;
     private long _dropped;
@@ -97,13 +102,12 @@ public sealed class AudioJitterBuffer : IDisposable
                 return;
             }
 
-            // Check if this packet is an old duplicate or already queued
+            // Check if packet was already played past
             if (_hasExpectedSeq)
             {
-                short diff = (short)(seqNum - _nextExpectedSeq);
-                if (diff < 0 || _recentSeqs.Contains(seqNum))
+                short playedDiff = (short)(seqNum - _nextExpectedSeq);
+                if (playedDiff < 0)
                 {
-                    // Already played past or duplicate in queue, discard
                     Interlocked.Increment(ref _dropped);
                     if (isPooled) ArrayPool<byte>.Shared.Return(pcmData);
                     return;
@@ -115,18 +119,71 @@ public sealed class AudioJitterBuffer : IDisposable
                 _hasExpectedSeq = true;
             }
 
+            // Sliding 64-packet window duplicate detection (RFC 2401 / RFC 3550 standard)
+            if (!_hasMaxSeq)
+            {
+                _maxSeq = seqNum;
+                _seenMask = 1UL;
+                _hasMaxSeq = true;
+            }
+            else
+            {
+                short diff = (short)(seqNum - _maxSeq);
+                if (diff > 0)
+                {
+                    if (diff >= 64)
+                        _seenMask = 1UL;
+                    else
+                        _seenMask = (_seenMask << diff) | 1UL;
+                    _maxSeq = seqNum;
+                }
+                else
+                {
+                    int offset = -diff;
+                    if (offset >= 64)
+                    {
+                        // Too old (>64 frames ≈ 700ms), discard
+                        Interlocked.Increment(ref _dropped);
+                        if (isPooled) ArrayPool<byte>.Shared.Return(pcmData);
+                        return;
+                    }
+                    if ((_seenMask & (1UL << offset)) != 0)
+                    {
+                        // Duplicate packet, discard
+                        Interlocked.Increment(ref _dropped);
+                        if (isPooled) ArrayPool<byte>.Shared.Return(pcmData);
+                        return;
+                    }
+                    _seenMask |= (1UL << offset);
+                }
+            }
+
+            long unwrappedSeq;
+            if (!_hasLastRawSeq)
+            {
+                unwrappedSeq = seqNum;
+                _lastUnwrappedSeq = seqNum;
+                _lastRawSeq = seqNum;
+                _hasLastRawSeq = true;
+            }
+            else
+            {
+                short delta = (short)(seqNum - _lastRawSeq);
+                unwrappedSeq = _lastUnwrappedSeq + delta;
+                _lastUnwrappedSeq = unwrappedSeq;
+                _lastRawSeq = seqNum;
+            }
+
             // If queue exceeds max capacity, drop oldest to avoid latency buildup
             if (_queue.Count >= MaxCapacity)
             {
                 var dropped = _queue.Dequeue();
-                _recentSeqs.Remove(dropped.SequenceNumber);
                 dropped.Return();
                 Interlocked.Increment(ref _dropped);
             }
 
-            _recentSeqs.Add(seqNum);
             var frame = new AudioFrame(seqNum, timestamp, pcmData, length, isPooled);
-            _queue.Enqueue(frame, seqNum);
+            _queue.Enqueue(frame, unwrappedSeq);
             Interlocked.Increment(ref _written);
 
             if (!_primed && _queue.Count >= _preBufferFrames)
@@ -186,7 +243,6 @@ public sealed class AudioJitterBuffer : IDisposable
             }
 
             frame = _queue.Dequeue();
-            _recentSeqs.Remove((ushort)(frame.SequenceNumber - 32));
             _nextExpectedSeq = (ushort)(frame.SequenceNumber + 1);
             _lastReadTime = DateTime.UtcNow;
             Interlocked.Increment(ref _read);
@@ -201,7 +257,8 @@ public sealed class AudioJitterBuffer : IDisposable
             if (_disposed) return;
             _disposed = true;
 
-            _recentSeqs.Clear();
+            _seenMask = 0;
+            _hasMaxSeq = false;
             while (_queue.TryDequeue(out var frame, out _))
             {
                 frame.Return();

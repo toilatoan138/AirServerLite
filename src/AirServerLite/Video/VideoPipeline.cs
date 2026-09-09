@@ -151,8 +151,8 @@ public sealed class VideoPipeline : IDisposable
                     var fps = decodedSinceReport / secs;
                     var avgLatency = latencySamples > 0 ? latencySum / latencySamples : 0;
 
-                    var line = $"{Width}x{Height}  {fps:F1} fps  decode+queue {avgLatency:F1} ms  " +
-                               $"queue {_queue.Count}  dropped {Interlocked.Read(ref _packetsDropped)}";
+                    var line = $"{Width}x{Height}  {fps:F1} fps  [{decoder.AccelerationMode}]  " +
+                               $"decode+queue {avgLatency:F1} ms  queue {_queue.Count}  dropped {Interlocked.Read(ref _packetsDropped)}";
                     StatsUpdated?.Invoke(line);
                     Log.Debug(Tag, line);
 

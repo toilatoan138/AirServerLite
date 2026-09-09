@@ -51,7 +51,7 @@
                 SizeChanged="OnVideoHostSizeChanged">
             <Grid>
                 <Image x:Name="VideoImage" Stretch="Uniform"
-                       RenderOptions.BitmapScalingMode="Linear"
+                       RenderOptions.BitmapScalingMode="HighQuality"
                        RenderOptions.EdgeMode="Aliased"
                        SnapsToDevicePixels="True"
                        UseLayoutRounding="True"/>

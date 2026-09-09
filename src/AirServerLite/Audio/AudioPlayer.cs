@@ -201,7 +201,8 @@ public sealed class AudioPlayer : IDisposable
         }
     }
 
-    private const int TargetInFlightBuffers = 3; // ~32ms audio queued in waveOut driver
+    private const int TargetInFlightBuffers = 6; // ~65ms audio queued in waveOut driver (absorbs WiFi jitter)
+    private static readonly byte[] SilenceFrame = new byte[1920]; // 10.9ms comfort silence for underruns
 
     private int CountInFlightBuffers()
     {
@@ -304,9 +305,6 @@ public sealed class AudioPlayer : IDisposable
                             _needsRampIn = false;
                         }
 
-                        // Apply studio-grade DSP Audio Enhancer (Warm Bass, Vocal Clarity, Stereo Expansion, Limiter)
-                        AudioEnhancer.Process(frame.Data, frame.Length);
-
                         SubmitBuffer(chosen, frame.Data, frame.Length);
                         Interlocked.Increment(ref _played);
                     }
@@ -320,6 +318,13 @@ public sealed class AudioPlayer : IDisposable
                     // Underrun — hardware is waiting but jitter buffer is dry
                     _needsRampIn = true;
                     Interlocked.Increment(ref _underruns);
+
+                    // If driver queue is completely empty (inFlight == 0), feed comfort silence to keep DAC clock running smoothly
+                    if (inFlight == 0)
+                    {
+                        SubmitBuffer(chosen, SilenceFrame, SilenceFrame.Length);
+                    }
+
                     // Wait briefly for sound card event or new data
                     WaitForSingleObject(_hEvent, 5);
                 }
@@ -413,7 +418,6 @@ public sealed class AudioPlayer : IDisposable
 
             if (chosen < 0) chosen = _nextBuffer;
 
-            AudioEnhancer.Process(pcm, length);
             SubmitBuffer(chosen, pcm, length);
             Interlocked.Increment(ref _played);
         }

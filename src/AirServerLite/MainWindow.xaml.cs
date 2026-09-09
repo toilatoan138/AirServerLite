@@ -97,10 +97,40 @@ public partial class MainWindow : Window
         // Ensure full Direct3D hardware acceleration is active
         System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.Default;
         int renderingTier = RenderCapability.Tier >> 16;
-        Log.Info(LogTag, $"Direct3D GPU Hardware Rendering Tier: {renderingTier} (Tier 2 = Full Hardware Acceleration)");
+        var gpuName = GetGpuName();
+        Log.Info(LogTag, $"GPU Hardware: {gpuName} | Direct3D Tier: {renderingTier} (Tier 2 = Full HW Acceleration)");
+        Title = $"AirServer-LITE [{gpuName} | Direct3D 11 HW]";
 
         VideoHost.Focus();
         RunPreflight();
+    }
+
+    private static string GetGpuName()
+    {
+        try
+        {
+            using var baseKey = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}");
+            if (baseKey != null)
+            {
+                var names = new List<string>();
+                foreach (var subKeyName in baseKey.GetSubKeyNames())
+                {
+                    if (subKeyName.Length == 4 && int.TryParse(subKeyName, out _))
+                    {
+                        using var subKey = baseKey.OpenSubKey(subKeyName);
+                        var desc = subKey?.GetValue("DriverDesc") as string;
+                        if (!string.IsNullOrEmpty(desc))
+                            names.Add(desc);
+                    }
+                }
+                var discrete = names.FirstOrDefault(n => n.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) ||
+                                                         n.Contains("Radeon", StringComparison.OrdinalIgnoreCase));
+                if (discrete != null) return discrete;
+                if (names.Count > 0) return names[0];
+            }
+        }
+        catch { }
+        return "Direct3D 11 GPU";
     }
 
     /// <summary>
@@ -705,9 +735,22 @@ public partial class MainWindow : Window
                 {
                     fixed (byte* src = frame.Pixels)
                     {
-                        Buffer.MemoryCopy(src, (void*)_bitmap.BackBuffer,
-                                          (long)_bitmap.BackBufferStride * frame.Height,
-                                          (long)frame.Stride * frame.Height);
+                        var dst = (byte*)_bitmap.BackBuffer;
+                        var dstStride = _bitmap.BackBufferStride;
+                        var srcStride = frame.Stride;
+                        var rowBytes = Math.Min(srcStride, dstStride);
+
+                        if (srcStride == dstStride)
+                        {
+                            Buffer.MemoryCopy(src, dst, (long)dstStride * frame.Height, (long)srcStride * frame.Height);
+                        }
+                        else
+                        {
+                            for (int y = 0; y < frame.Height; y++)
+                            {
+                                Buffer.MemoryCopy(src + (long)y * srcStride, dst + (long)y * dstStride, dstStride, rowBytes);
+                            }
+                        }
                     }
                 }
                 _bitmap.AddDirtyRect(new Int32Rect(0, 0, frame.Width, frame.Height));
