@@ -11,7 +11,8 @@ namespace AirServerLite.Video.Processing;
 public sealed class MotionFrameSynthesizer
 {
     private readonly int _threads;
-    private BgraFrame? _frameSlot;
+    private readonly BgraFrame[] _frameSlots = new BgraFrame[2];
+    private int _slotIndex = 0;
 
     public MotionFrameSynthesizer(int threads = 16)
     {
@@ -26,23 +27,27 @@ public sealed class MotionFrameSynthesizer
         }
 
         int totalBytes = prev.Pixels.Length;
-        if (_frameSlot == null || _frameSlot.Pixels.Length != totalBytes)
+        _slotIndex = (_slotIndex + 1) % _frameSlots.Length;
+        var frameSlot = _frameSlots[_slotIndex];
+
+        if (frameSlot == null || frameSlot.Pixels.Length != totalBytes)
         {
-            _frameSlot = new BgraFrame
+            frameSlot = new BgraFrame
             {
                 Pixels = new byte[totalBytes]
             };
+            _frameSlots[_slotIndex] = frameSlot;
         }
 
-        _frameSlot.Width = prev.Width;
-        _frameSlot.Height = prev.Height;
-        _frameSlot.Stride = prev.Stride;
-        _frameSlot.Timestamp = (prev.Timestamp + next.Timestamp) / 2;
-        _frameSlot.DecodedUtc = DateTime.UtcNow;
+        frameSlot.Width = prev.Width;
+        frameSlot.Height = prev.Height;
+        frameSlot.Stride = prev.Stride;
+        frameSlot.Timestamp = (prev.Timestamp + next.Timestamp) / 2;
+        frameSlot.DecodedUtc = DateTime.UtcNow;
 
         fixed (byte* pPrev = prev.Pixels)
         fixed (byte* pNext = next.Pixels)
-        fixed (byte* pDst = _frameSlot.Pixels)
+        fixed (byte* pDst = frameSlot.Pixels)
         {
             nint prevPtr = (nint)pPrev;
             nint nextPtr = (nint)pNext;
@@ -78,6 +83,6 @@ public sealed class MotionFrameSynthesizer
             });
         }
 
-        return _frameSlot;
+        return frameSlot;
     }
 }

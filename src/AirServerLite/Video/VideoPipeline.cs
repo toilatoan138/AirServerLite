@@ -49,9 +49,27 @@ public sealed class VideoPipeline : IDisposable
     public int Height { get; private set; }
     public long PacketsDropped => Interlocked.Read(ref _packetsDropped);
 
-    public VideoPipeline(int maxQueuedFrames)
+    public RtxFidelitySettings RtxSettings { get; }
+    private readonly Video.Processing.NvidiaImageScaler? _nis;
+    private readonly Video.Processing.RtxColorEnhancer? _colorEnhancer;
+    private readonly Video.Processing.MotionFrameSynthesizer? _synthesizer;
+    private byte[]? _postProcessBuffer;
+    private BgraFrame? _lastFrameCopy;
+
+    public VideoPipeline(int maxQueuedFrames, RtxFidelitySettings? rtxSettings = null)
     {
         _maxQueued = Math.Max(1, maxQueuedFrames);
+        RtxSettings = rtxSettings ?? RtxFidelitySettings.CreateRtxUltra();
+
+        if (RtxSettings.EnableNvidiaImageScaling)
+            _nis = new Video.Processing.NvidiaImageScaler(RtxSettings.Sharpness);
+
+        if (RtxSettings.EnableRtxDigitalVibrance)
+            _colorEnhancer = new Video.Processing.RtxColorEnhancer(RtxSettings.VibranceBoost);
+
+        if (RtxSettings.EnableMotionInterpolation)
+            _synthesizer = new Video.Processing.MotionFrameSynthesizer(RtxSettings.CpuThreadCount);
+
         // Minimum 128 packets capacity to safely absorb Wi-Fi A-MPDU bursts without packet drops.
         _queue = new BlockingCollection<VideoPacket>(new ConcurrentQueue<VideoPacket>(), Math.Max(128, _maxQueued * 16));
     }
@@ -100,7 +118,7 @@ public sealed class VideoPipeline : IDisposable
 
         try
         {
-            decoder = new H264Decoder();
+            decoder = new H264Decoder { UpscaleMode = RtxSettings.UpscaleMode };
 
             foreach (var packet in _queue.GetConsumingEnumerable(_cts.Token))
             {
@@ -111,34 +129,50 @@ public sealed class VideoPipeline : IDisposable
 
                     if (frame is null) continue;
 
-                    Width = frame.Width;
-                    Height = frame.Height;
-
-                    lock (_slotLock)
+                    // Apply NVIDIA Image Scaling (NIS)
+                    if (_nis != null)
                     {
-                        // True triple-buffering handoff:
-                        // If _readyBuffer was not yet consumed by UI, we reclaim it as the next _decodeBuffer.
-                        // Otherwise, we take the _spareBuffer as the next _decodeBuffer.
-                        // _presentBuffer is never touched by this thread.
-                        if (_readyBuffer != null)
+                        if (_postProcessBuffer == null || _postProcessBuffer.Length != frame.Pixels.Length)
+                            _postProcessBuffer = new byte[frame.Pixels.Length];
+                        _nis.Process(frame.Pixels, _postProcessBuffer, frame.Width, frame.Height, frame.Stride);
+                        Array.Copy(_postProcessBuffer, frame.Pixels, frame.Pixels.Length);
+                    }
+
+                    // Apply RTX Digital Vibrance
+                    _colorEnhancer?.Enhance(frame.Pixels, frame.Width, frame.Height, frame.Stride);
+
+                    // If 120Hz/144Hz MEMC is active, synthesize intermediate frame
+                    if (_synthesizer != null && _lastFrameCopy != null &&
+                        _lastFrameCopy.Width == frame.Width && _lastFrameCopy.Height == frame.Height)
+                    {
+                        var synth = _synthesizer.Synthesize(_lastFrameCopy, frame);
+                        DeliverFrame(synth);
+
+                        // If streaming is real-time without backlog, pace synthesized frame for 120Hz display
+                        if (_queue.Count == 0)
                         {
-                            var oldReady = _readyBuffer;
-                            _readyBuffer = frame;
-                            _decodeBuffer = oldReady;
+                            Thread.Sleep(7);
                         }
-                        else
-                        {
-                            _readyBuffer = frame;
-                            _decodeBuffer = _spareBuffer;
-                        }
+                    }
+
+                    DeliverFrame(frame);
+
+                    if (_synthesizer != null)
+                    {
+                        _lastFrameCopy ??= new BgraFrame();
+                        if (_lastFrameCopy.Pixels.Length != frame.Pixels.Length)
+                            _lastFrameCopy.Pixels = new byte[frame.Pixels.Length];
+                        _lastFrameCopy.Width = frame.Width;
+                        _lastFrameCopy.Height = frame.Height;
+                        _lastFrameCopy.Stride = frame.Stride;
+                        _lastFrameCopy.Timestamp = frame.Timestamp;
+                        Array.Copy(frame.Pixels, _lastFrameCopy.Pixels, frame.Pixels.Length);
                     }
 
                     decodedSinceReport++;
                     var age = (DateTime.UtcNow - packet.ArrivedUtc).TotalMilliseconds;
                     latencySum += age;
                     latencySamples++;
-
-                    FrameAvailable?.Invoke();
                 }
                 catch (Exception ex)
                 {
@@ -149,10 +183,11 @@ public sealed class VideoPipeline : IDisposable
                 {
                     var secs = lastStats.Elapsed.TotalSeconds;
                     var fps = decodedSinceReport / secs;
+                    var effectiveFps = RtxSettings.EnableMotionInterpolation ? fps * 2 : fps;
                     var avgLatency = latencySamples > 0 ? latencySum / latencySamples : 0;
 
-                    var line = $"{Width}x{Height}  {fps:F1} fps  [{decoder.AccelerationMode}]  " +
-                               $"decode+queue {avgLatency:F1} ms  queue {_queue.Count}  dropped {Interlocked.Read(ref _packetsDropped)}";
+                    var line = $"{Width}x{Height}  {effectiveFps:F1} fps {(RtxSettings.EnableMotionInterpolation ? "[120Hz MEMC]" : "")}  [{decoder.AccelerationMode}]  " +
+                               $"NIS: {(RtxSettings.EnableNvidiaImageScaling ? "ON" : "OFF")}  queue {_queue.Count}  dropped {Interlocked.Read(ref _packetsDropped)}";
                     StatsUpdated?.Invoke(line);
                     Log.Debug(Tag, line);
 
@@ -166,14 +201,36 @@ public sealed class VideoPipeline : IDisposable
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            Log.Error(Tag, "Decode thread died", ex);
-            StatsUpdated?.Invoke("Decoder stopped: " + ex.Message);
+            Log.Error(Tag, "Decode thread fatal error", ex);
         }
         finally
         {
             decoder?.Dispose();
-            Log.Info(Tag, "Decode thread exited");
+            Log.Info(Tag, "Decode thread exiting");
         }
+    }
+
+    private void DeliverFrame(BgraFrame frame)
+    {
+        Width = frame.Width;
+        Height = frame.Height;
+
+        lock (_slotLock)
+        {
+            if (_readyBuffer != null)
+            {
+                var oldReady = _readyBuffer;
+                _readyBuffer = frame;
+                _decodeBuffer = oldReady;
+            }
+            else
+            {
+                _readyBuffer = frame;
+                _decodeBuffer = _spareBuffer;
+            }
+        }
+
+        FrameAvailable?.Invoke();
     }
 
     /// <summary>

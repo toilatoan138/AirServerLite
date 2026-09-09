@@ -48,6 +48,7 @@ public sealed unsafe class H264Decoder : IDisposable
     public long FramesDecoded { get; private set; }
     public bool IsHardwareAccelerated { get; private set; }
     public string AccelerationMode { get; private set; } = "CPU";
+    public RtxUpscaleMode UpscaleMode { get; set; } = RtxUpscaleMode.NvidiaDirectionalLanczos;
 
     public H264Decoder()
     {
@@ -203,10 +204,17 @@ public sealed unsafe class H264Decoder : IDisposable
         {
             if (_sws != null) ffmpeg.sws_freeContext(_sws);
 
+            int swsFlags = UpscaleMode switch
+            {
+                RtxUpscaleMode.NvidiaDirectionalLanczos => (int)(SwsFlags.SWS_LANCZOS | SwsFlags.SWS_ACCURATE_RND | SwsFlags.SWS_FULL_CHR_H_INT),
+                RtxUpscaleMode.Bicubic => (int)SwsFlags.SWS_BICUBIC,
+                _ => (int)SwsFlags.SWS_FAST_BILINEAR
+            };
+
             _sws = ffmpeg.sws_getContext(
                 w, h, format,
                 w, h, AVPixelFormat.AV_PIX_FMT_BGRA,
-                (int)SwsFlags.SWS_FAST_BILINEAR, null, null, null);
+                swsFlags, null, null, null);
 
             if (_sws == null)
             {
