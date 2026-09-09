@@ -13,6 +13,15 @@ public sealed class VideoPacket
     public byte[] Data { get; init; } = Array.Empty<byte>();
     public ulong Timestamp { get; init; }
     public bool IsParameterSet { get; init; }
+
+    /// <summary>
+    /// True for an IDR access unit. These carry SPS/PPS prepended (see the type-0 branch
+    /// below), so they are self-contained: the decoder can restart from one without any
+    /// earlier frame. <see cref="Video.VideoPipeline"/> uses this to resynchronise after
+    /// it has had to discard a backlog.
+    /// </summary>
+    public bool IsKeyframe { get; init; }
+
     public DateTime ArrivedUtc { get; init; } = DateTime.UtcNow;
 }
 
@@ -189,7 +198,12 @@ public sealed class MirrorStreamReceiver : IDisposable
                             annexB = combined;
                         }
 
-                        PacketReady?.Invoke(new VideoPacket { Data = annexB, Timestamp = timestamp });
+                        PacketReady?.Invoke(new VideoPacket
+                        {
+                            Data = annexB,
+                            Timestamp = timestamp,
+                            IsKeyframe = isKeyframe
+                        });
                     }
                     break;
 

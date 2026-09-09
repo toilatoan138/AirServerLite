@@ -70,6 +70,7 @@ public sealed class MiracastRtpReceiver : IDisposable
                     {
                         Data = nalu,
                         IsParameterSet = isKey,
+                        IsKeyframe = isKey,
                         Timestamp = (ulong)Environment.TickCount64
                     });
                 }

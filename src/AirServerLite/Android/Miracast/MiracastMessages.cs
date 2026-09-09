@@ -4,8 +4,8 @@ public static class MiracastMessages
 {
     public const string WfdVersion = "org.wfa.wfd1.0";
 
-    // 1080p60 & 720p60 H.264 profile baseline/high supported
-    public const string DefaultVideoFormats = "00 00 02 02 00000040 00000000 00000000 00 0000 0000 00 none none";
+    // 2K (2560x1440), 1080p60 & 720p60 H.264 High Profile Level 5.1 supported
+    public const string DefaultVideoFormats = "00 00 02 10 0000007F 00003FFF 00000000 00 0000 0000 00 none none";
     public const string DefaultAudioCodecs = "LPCM 00000002 00, AAC 00000001 00";
 
     public static string BuildResponse(int cseq, string status = "200 OK", string? contentType = null, string? body = null, string? extraHeaders = null)

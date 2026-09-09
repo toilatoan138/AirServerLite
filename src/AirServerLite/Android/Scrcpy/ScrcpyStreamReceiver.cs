@@ -58,6 +58,7 @@ public sealed class ScrcpyStreamReceiver : IDisposable
                 {
                     Data = nalu,
                     IsParameterSet = isKey,
+                    IsKeyframe = isKey,
                     Timestamp = pts
                 });
             }

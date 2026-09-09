@@ -204,12 +204,18 @@ public sealed unsafe class H264Decoder : IDisposable
         {
             if (_sws != null) ffmpeg.sws_freeContext(_sws);
 
-            int swsFlags = UpscaleMode switch
-            {
-                RtxUpscaleMode.NvidiaDirectionalLanczos => (int)(SwsFlags.SWS_LANCZOS | SwsFlags.SWS_ACCURATE_RND | SwsFlags.SWS_FULL_CHR_H_INT),
-                RtxUpscaleMode.Bicubic => (int)SwsFlags.SWS_BICUBIC,
-                _ => (int)SwsFlags.SWS_FAST_BILINEAR
-            };
+            // Source and destination geometry are identical - this is a colourspace convert,
+            // not a resize - so the scaling kernel never runs and picking Lanczos over
+            // bilinear changes nothing in the output. What the mode does still control is
+            // chroma reconstruction, and that is not free: SWS_FULL_CHR_H_INT interpolates
+            // chroma horizontally instead of duplicating it, which on a 2K frame costs enough
+            // decode-thread time to build a backlog. Spend it only while the frame is small
+            // enough to afford it; above that the conversion has to keep up first.
+            const int FullChromaPixelBudget = 1920 * 1200;
+
+            int swsFlags = (int)SwsFlags.SWS_BILINEAR;
+            if (UpscaleMode == RtxUpscaleMode.NvidiaDirectionalLanczos && (long)w * h <= FullChromaPixelBudget)
+                swsFlags |= (int)(SwsFlags.SWS_ACCURATE_RND | SwsFlags.SWS_FULL_CHR_H_INT);
 
             _sws = ffmpeg.sws_getContext(
                 w, h, format,

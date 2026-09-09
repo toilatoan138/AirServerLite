@@ -4,60 +4,70 @@ using System.Runtime.Intrinsics.X86;
 namespace AirServerLite.Video.Processing;
 
 /// <summary>
-/// Motion Estimation & Frame Synthesizer (MEMC).
-/// Leverages Intel 14th Gen Core i7 (up to 24 threads) with AVX2 SIMD
-/// to synthesize intermediate frames at 120 FPS / 144 FPS.
+/// Motion Estimation &amp; Frame Synthesizer (MEMC).
+/// Blends two consecutive frames into an intermediate one so a 60 fps source can be
+/// presented at 120 fps, using AVX2 across the CPU's threads.
+///
+/// The synthesizer owns no buffers. It writes into a destination the caller supplies and
+/// keeps nothing between calls - an earlier version handed back its own internal slots,
+/// which the pipeline then adopted as its decode target, so the decoder and the UI could
+/// end up on the same memory. Taking the destination as a parameter makes that impossible.
 /// </summary>
 public sealed class MotionFrameSynthesizer
 {
     private readonly int _threads;
-    private readonly BgraFrame[] _frameSlots = new BgraFrame[2];
-    private int _slotIndex = 0;
 
     public MotionFrameSynthesizer(int threads = 16)
     {
-        _threads = Math.Clamp(threads, 4, 24);
+        _threads = Math.Clamp(threads, 1, Environment.ProcessorCount);
     }
 
-    public unsafe BgraFrame Synthesize(BgraFrame prev, BgraFrame next)
+    /// <summary>
+    /// Fills <paramref name="dst"/> with the midpoint of <paramref name="prev"/> and
+    /// <paramref name="next"/>. Returns false - writing nothing - when the two frames do not
+    /// describe the same surface, which happens for one frame after a resolution change.
+    /// The caller must then present only the real frame.
+    /// </summary>
+    public unsafe bool Synthesize(BgraFrame prev, BgraFrame next, BgraFrame dst)
     {
-        if (prev.Width != next.Width || prev.Height != next.Height || prev.Pixels.Length != next.Pixels.Length)
+        if (prev.Width != next.Width || prev.Height != next.Height ||
+            prev.Stride != next.Stride || prev.Pixels.Length != next.Pixels.Length ||
+            prev.Pixels.Length == 0)
         {
-            return next;
+            return false;
         }
+
+        if (ReferenceEquals(dst, prev) || ReferenceEquals(dst, next))
+            return false;
 
         int totalBytes = prev.Pixels.Length;
-        _slotIndex = (_slotIndex + 1) % _frameSlots.Length;
-        var frameSlot = _frameSlots[_slotIndex];
+        if (dst.Pixels.Length != totalBytes) dst.Pixels = new byte[totalBytes];
 
-        if (frameSlot == null || frameSlot.Pixels.Length != totalBytes)
-        {
-            frameSlot = new BgraFrame
-            {
-                Pixels = new byte[totalBytes]
-            };
-            _frameSlots[_slotIndex] = frameSlot;
-        }
-
-        frameSlot.Width = prev.Width;
-        frameSlot.Height = prev.Height;
-        frameSlot.Stride = prev.Stride;
-        frameSlot.Timestamp = (prev.Timestamp + next.Timestamp) / 2;
-        frameSlot.DecodedUtc = DateTime.UtcNow;
+        dst.Width = prev.Width;
+        dst.Height = prev.Height;
+        dst.Stride = prev.Stride;
+        dst.Timestamp = prev.Timestamp + ((next.Timestamp - prev.Timestamp) / 2);
+        dst.DecodedUtc = DateTime.UtcNow;
 
         fixed (byte* pPrev = prev.Pixels)
         fixed (byte* pNext = next.Pixels)
-        fixed (byte* pDst = frameSlot.Pixels)
+        fixed (byte* pDst = dst.Pixels)
         {
             nint prevPtr = (nint)pPrev;
             nint nextPtr = (nint)pNext;
             nint dstPtr = (nint)pDst;
-            int sliceSize = totalBytes / _threads;
 
-            Parallel.For(0, _threads, t =>
+            // Round the slice up, not down: with a floor the last thread inherited every
+            // leftover byte, which on a 2K frame is a visible tail of extra work.
+            int slices = Math.Max(1, _threads);
+            int sliceSize = (totalBytes + slices - 1) / slices;
+
+            Parallel.For(0, slices, t =>
             {
                 int start = t * sliceSize;
-                int end = (t == _threads - 1) ? totalBytes : start + sliceSize;
+                if (start >= totalBytes) return;
+                int end = Math.Min(start + sliceSize, totalBytes);
+
                 byte* localPrev = (byte*)prevPtr;
                 byte* localNext = (byte*)nextPtr;
                 byte* localDst = (byte*)dstPtr;
@@ -83,6 +93,6 @@ public sealed class MotionFrameSynthesizer
             });
         }
 
-        return frameSlot;
+        return true;
     }
 }

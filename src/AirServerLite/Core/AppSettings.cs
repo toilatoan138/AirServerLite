@@ -8,6 +8,8 @@ public sealed class VideoSettings
     public string FFmpegPath { get; set; } = "ffmpeg/bin";
     public int MaxQueuedFrames { get; set; } = 2;
     public bool LowLatency { get; set; } = true;
+    public int MaxWidth { get; set; } = 2560;
+    public int MaxHeight { get; set; } = 1440;
 }
 
 public sealed class InputSettings

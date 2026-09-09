@@ -6,15 +6,20 @@ namespace AirServerLite.UI;
 public partial class RtxFidelityDialog : Window
 {
     public RtxFidelitySettings Settings { get; }
-    private bool _suppressEvents;
+
+    // Starts true so the Checked/ValueChanged handlers that XAML raises while
+    // InitializeComponent() parses IsChecked="True" / Value="..." are ignored
+    // until Settings has been assigned. LoadSettingsIntoUI clears it in its finally.
+    private bool _suppressEvents = true;
 
     public event Action<RtxFidelitySettings>? SettingsApplied;
 
     public RtxFidelityDialog(RtxFidelitySettings currentSettings)
     {
-        InitializeComponent();
         Settings = currentSettings ?? RtxFidelitySettings.CreateRtxUltra();
+        InitializeComponent();
         LoadSettingsIntoUI(Settings);
+        _suppressEvents = false;
     }
 
     private void LoadSettingsIntoUI(RtxFidelitySettings s)
@@ -58,7 +63,7 @@ public partial class RtxFidelityDialog : Window
 
     private void OnPresetUltraChecked(object sender, RoutedEventArgs e)
     {
-        if (_suppressEvents) return;
+        if (_suppressEvents || Settings is null) return;
         var ultra = RtxFidelitySettings.CreateRtxUltra();
         CopySettings(ultra, Settings);
         LoadSettingsIntoUI(Settings);
@@ -66,7 +71,7 @@ public partial class RtxFidelityDialog : Window
 
     private void OnPresetBalancedChecked(object sender, RoutedEventArgs e)
     {
-        if (_suppressEvents) return;
+        if (_suppressEvents || Settings is null) return;
         var balanced = RtxFidelitySettings.CreateBalanced();
         CopySettings(balanced, Settings);
         LoadSettingsIntoUI(Settings);
@@ -74,7 +79,7 @@ public partial class RtxFidelityDialog : Window
 
     private void OnPresetPowerSaverChecked(object sender, RoutedEventArgs e)
     {
-        if (_suppressEvents) return;
+        if (_suppressEvents || Settings is null) return;
         var power = RtxFidelitySettings.CreatePowerSaver();
         CopySettings(power, Settings);
         LoadSettingsIntoUI(Settings);

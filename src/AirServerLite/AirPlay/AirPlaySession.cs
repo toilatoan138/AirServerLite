@@ -431,12 +431,15 @@ public sealed class AirPlaySession : IDisposable
     /// </summary>
     private RtspResponse HandleInfo(RtspRequest req)
     {
+        int maxWidth = _settings.Video.MaxWidth > 0 ? _settings.Video.MaxWidth : 2560;
+        int maxHeight = _settings.Video.MaxHeight > 0 ? _settings.Video.MaxHeight : 1440;
+
         var display = new NSDictionary
         {
-            { "width", 1920 },
-            { "height", 1080 },
-            { "widthPixels", 1920 },
-            { "heightPixels", 1080 },
+            { "width", maxWidth },
+            { "height", maxHeight },
+            { "widthPixels", maxWidth },
+            { "heightPixels", maxHeight },
             { "widthPhysical", 0 },
             { "heightPhysical", 0 },
             { "refreshRate", 60 },
