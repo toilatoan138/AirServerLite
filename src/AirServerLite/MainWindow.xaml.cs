@@ -59,6 +59,7 @@ public partial class MainWindow : Window
 
     private bool _isWebPlayerActive;
     private AirPlay.MediaSession? _activeMediaSession;
+    private RtxFidelitySettings _rtxSettings = RtxFidelitySettings.CreateRtxUltra();
 
     public MainWindow()
     {
@@ -196,9 +197,13 @@ public partial class MainWindow : Window
 
             _identity = DeviceIdentity.LoadOrCreate(_settings.DeviceName, nic.Mac);
 
-            _pipeline = new VideoPipeline(_settings.Video.MaxQueuedFrames);
+            _pipeline = new VideoPipeline(_settings.Video.MaxQueuedFrames, _rtxSettings);
             _pipeline.FrameAvailable += OnPipelineFrameAvailable;
-            _pipeline.StatsUpdated += line => Dispatcher.BeginInvoke(() => StatsText.Text = line);
+            _pipeline.StatsUpdated += line => Dispatcher.BeginInvoke(() =>
+            {
+                StatsText.Text = line;
+                UpdateRtxTelemetryHud(line);
+            });
             _pipeline.Start();
 
             _server = new AirPlayServer(_identity, nic.Address, _settings);
@@ -308,6 +313,7 @@ public partial class MainWindow : Window
             BtnStart.Content = "Start receiver";
             StatsText.Text = "";
             ChkInput.IsChecked = false;
+            RtxTelemetryOverlay.Visibility = Visibility.Collapsed;
             SetStatus("Stopped", ready: false);
         }
     }
@@ -392,6 +398,49 @@ public partial class MainWindow : Window
     {
         var dlg = new AndroidConnectDialog { Owner = this };
         dlg.ShowDialog();
+    }
+
+    private void OnRtxFidelityClicked(object sender, RoutedEventArgs e)
+    {
+        var dlg = new UI.RtxFidelityDialog(_rtxSettings) { Owner = this };
+        dlg.SettingsApplied += newSettings =>
+        {
+            _rtxSettings = newSettings;
+            Log.Info(LogTag, $"RTX Fidelity updated: Profile={_rtxSettings.Profile}, MEMC={_rtxSettings.EnableMotionInterpolation}, NIS={_rtxSettings.EnableNvidiaImageScaling}, Vibrance={_rtxSettings.EnableRtxDigitalVibrance}");
+            if (!_rtxSettings.ShowTelemetryHud)
+            {
+                RtxTelemetryOverlay.Visibility = Visibility.Collapsed;
+            }
+        };
+        dlg.ShowDialog();
+    }
+
+    private void UpdateRtxTelemetryHud(string statsLine)
+    {
+        if (!_rtxSettings.ShowTelemetryHud || _pipeline is null || VideoImage.Visibility != Visibility.Visible)
+        {
+            if (RtxTelemetryOverlay.Visibility != Visibility.Collapsed)
+                RtxTelemetryOverlay.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (RtxTelemetryOverlay.Visibility != Visibility.Visible)
+            RtxTelemetryOverlay.Visibility = Visibility.Visible;
+
+        var parts = statsLine.Split(new[] { "  " }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2)
+        {
+            TxtRtxHudFps.Text = parts[1].Trim();
+        }
+        else
+        {
+            TxtRtxHudFps.Text = _rtxSettings.EnableMotionInterpolation ? "120.0 FPS [MEMC]" : "60.0 FPS";
+        }
+
+        string hwMode = _pipeline.RtxSettings.EnableMotionInterpolation ? "24T MEMC" : "Stock";
+        string nisTag = _rtxSettings.EnableNvidiaImageScaling ? $"NIS {_rtxSettings.Sharpness:P0}" : "Raw";
+        string vibTag = _rtxSettings.EnableRtxDigitalVibrance ? $" | Vib +{_rtxSettings.VibranceBoost * 100:F0}%" : "";
+        TxtRtxHudDetail.Text = $"RTX 4060 | {hwMode} | {nisTag}{vibTag}";
     }
 
     private async Task EnsureWebView2InitializedAsync()

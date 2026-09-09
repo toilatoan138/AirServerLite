@@ -35,6 +35,7 @@
                 <Rectangle Width="1" Fill="{StaticResource PanelEdge}" Margin="8,2,8,2"/>
                 <Button x:Name="BtnFullscreen" Content="⛶ Fullscreen" Click="OnFullscreenClicked"/>
                 <Button x:Name="BtnAndroidGuide" Content="📱 Kết nối Android" Click="OnAndroidGuideClicked" Margin="6,0,0,0" ToolTip="Hướng dẫn kết nối điện thoại Android (Smart View / Cast / ADB)"/>
+                <Button x:Name="BtnRtxFidelity" Content="⚡ RTX Fidelity" Click="OnRtxFidelityClicked" Margin="6,0,0,0" ToolTip="Cấu hình NVIDIA RTX &amp; Intel 14th Gen Fidelity Engine"/>
                 <Button x:Name="BtnTvCode" Content="📺 Ghép nối TV" Click="OnTvCodeClicked" Margin="6,0,0,0" ToolTip="Mở giao diện YouTube TV có mã số kết nối trực tiếp với điện thoại"/>
                 <Button x:Name="BtnQuickPlay" Content="▶ Link YouTube" Click="OnQuickPlayClicked" Margin="6,0,0,0"/>
                 <Button x:Name="BtnStopMedia" Content="⏹ Dừng phát" Click="OnStopMediaClicked" Visibility="Collapsed" Margin="6,0,0,0"/>
@@ -94,6 +95,18 @@
                         <Button Content="Home" Click="OnHome" Margin="0,0,6,0"/>
                         <Button Content="Vol -" Click="OnVolumeDown" Margin="0,0,4,0"/>
                         <Button Content="Vol +" Click="OnVolumeUp"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- RTX Telemetry HUD Badge Overlay -->
+                <Border x:Name="RtxTelemetryOverlay" HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Background="#CC0F1218" BorderBrush="#FF76B900" BorderThickness="1.2"
+                        CornerRadius="6" Padding="10,6" Margin="0,14,14,0" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="⚡ RTX" FontWeight="Bold" Foreground="#FF76B900" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtRtxHudFps" Text="120.0 FPS" FontWeight="Bold" Foreground="#FFFFFFFF" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <Rectangle Width="1" Fill="{StaticResource PanelEdge}" Margin="0,1,8,1"/>
+                        <TextBlock x:Name="TxtRtxHudDetail" Text="NVDEC D3D11 | 24T MEMC | NIS" Foreground="{StaticResource TextDim}" FontSize="11" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Border>
             </Grid>

@@ -1,0 +1,142 @@
+<Window x:Class="AirServerLite.UI.RtxFidelityDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="⚡ Cấu hình NVIDIA RTX &amp; Intel 14th Gen Fidelity Engine"
+        Icon="pack://application:,,,/Assets/app.ico"
+        Height="680" Width="640"
+        Background="{StaticResource Bg}"
+        Foreground="{StaticResource Text}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display">
+
+    <Grid Margin="20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="⚡ NVIDIA RTX 4060 &amp; Intel Core i7-14650HX Fidelity Engine"
+                           FontSize="16" FontWeight="Bold" Foreground="#FF76B900"/>
+            </StackPanel>
+            <TextBlock Text="Khai thác tối đa sức mạnh phần cứng GPU và CPU đa nhân để đạt chất lượng hình ảnh sắc nét chuẩn điện ảnh và độ mượt mà 120 FPS."
+                       Foreground="{StaticResource TextDim}" TextWrapping="Wrap" LineHeight="18"/>
+        </StackPanel>
+
+        <!-- Scrollable Body -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,14">
+            <StackPanel>
+                <!-- Presets -->
+                <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource PanelEdge}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="Chế độ hiệu năng (Presets)" FontSize="13.5" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="RbPresetUltra" Content="🚀 RTX Ultra (120 FPS / Lanczos-4)"
+                                         GroupName="Presets" Foreground="{StaticResource Text}" IsChecked="True"
+                                         Checked="OnPresetUltraChecked" Margin="0,0,16,0"/>
+                            <RadioButton x:Name="RbPresetBalanced" Content="⚖️ Balanced (60 FPS)"
+                                         GroupName="Presets" Foreground="{StaticResource Text}"
+                                         Checked="OnPresetBalancedChecked" Margin="0,0,16,0"/>
+                            <RadioButton x:Name="RbPresetPowerSaver" Content="🌱 Power Saver"
+                                         GroupName="Presets" Foreground="{StaticResource Text}"
+                                         Checked="OnPresetPowerSaverChecked"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Video Upscaling & Edge Sharpening -->
+                <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource PanelEdge}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="NVIDIA Image Scaling (NIS) &amp; Upscaler" FontSize="13.5" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="ChkNis" Content="Bật thuật toán lọc viền 6-tap sắc nét NVIDIA NIS"
+                                  Foreground="{StaticResource Text}" IsChecked="True" Margin="0,0,0,8"
+                                  Click="OnSettingChanged"/>
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="Độ sắc nét viền (Sharpness): " Foreground="{StaticResource TextDim}"/>
+                            <TextBlock x:Name="TxtSharpnessVal" Text="85%" FontWeight="SemiBold" Width="45" TextAlignment="Right" DockPanel.Dock="Right"/>
+                            <Slider x:Name="SliderSharpness" Minimum="0" Maximum="1" Value="0.85"
+                                    TickFrequency="0.05" IsSnapToTickEnabled="True"
+                                    ValueChanged="OnSharpnessChanged"/>
+                        </DockPanel>
+                        <TextBlock Text="Phương pháp nội suy điểm ảnh: Lanczos-4 Sinc (36-tap Direct3D 11 NVDEC)"
+                                   Foreground="{StaticResource TextDim}" FontSize="11.5"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Intel 24-Thread Motion Synthesis -->
+                <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource PanelEdge}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="Intel Core i7-14650HX 24-Thread MEMC (120 FPS)" FontSize="13.5" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="ChkMemc" Content="Tự động nhân đôi khung hình (60 FPS ➔ 120 FPS) bằng AVX2 SIMD"
+                                  Foreground="{StaticResource Text}" IsChecked="True" Margin="0,0,0,8"
+                                  Click="OnSettingChanged"/>
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="Số luồng CPU xử lý song song: " Foreground="{StaticResource TextDim}"/>
+                            <TextBlock x:Name="TxtCpuThreads" Text="24 Threads" FontWeight="SemiBold" Width="80" TextAlignment="Right" DockPanel.Dock="Right"/>
+                            <Slider x:Name="SliderCpuThreads" Minimum="4" Maximum="24" Value="24"
+                                    TickFrequency="1" IsSnapToTickEnabled="True"
+                                    ValueChanged="OnCpuThreadsChanged"/>
+                        </DockPanel>
+                        <TextBlock Text="Sử dụng tập lệnh Vector256 AVX2 của vi xử lý Intel thế hệ 14 giúp video mượt mà tuyệt đối không xé hình."
+                                   Foreground="{StaticResource TextDim}" FontSize="11.5"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- RTX Digital Vibrance & Color Gamut -->
+                <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource PanelEdge}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="RTX Digital Vibrance &amp; OLED Gamut Expansion" FontSize="13.5" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="ChkVibrance" Content="Kích hoạt bộ tăng cường màu sắc Digital Vibrance"
+                                  Foreground="{StaticResource Text}" IsChecked="True" Margin="0,0,0,8"
+                                  Click="OnSettingChanged"/>
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="Mức tăng cường bão hòa màu: " Foreground="{StaticResource TextDim}"/>
+                            <TextBlock x:Name="TxtVibranceVal" Text="+35%" FontWeight="SemiBold" Width="45" TextAlignment="Right" DockPanel.Dock="Right"/>
+                            <Slider x:Name="SliderVibrance" Minimum="0" Maximum="1" Value="0.35"
+                                    TickFrequency="0.05" IsSnapToTickEnabled="True"
+                                    ValueChanged="OnVibranceChanged"/>
+                        </DockPanel>
+                        <TextBlock Text="Nâng cấp gam màu DCI-P3 chuẩn điện ảnh cho màn hình OLED / IPS tần số quét cao."
+                                   Foreground="{StaticResource TextDim}" FontSize="11.5"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Audio DSP & Telemetry HUD -->
+                <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource PanelEdge}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,0,0,8">
+                    <StackPanel>
+                        <TextBlock Text="Studio Audio DSP &amp; Màn hình thông số" FontSize="13.5" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="ChkStudioAudio" Content="Bộ xử lý âm thanh không gian 3D Stereo Widener &amp; Bass Exciter"
+                                  Foreground="{StaticResource Text}" IsChecked="True" Margin="0,0,0,8"
+                                  Click="OnSettingChanged"/>
+                        <CheckBox x:Name="ChkTelemetryHud" Content="Hiển thị huy hiệu thông số thời gian thực (FPS / GPU / CPU / NIS) trên màn hình"
+                                  Foreground="{StaticResource Text}" IsChecked="True"
+                                  Click="OnSettingChanged"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer Actions -->
+        <DockPanel Grid.Row="2" LastChildFill="False">
+            <Border Background="#2676B900" BorderBrush="#FF76B900" BorderThickness="1"
+                    CornerRadius="4" Padding="8,4" DockPanel.Dock="Left" VerticalAlignment="Center">
+                <TextBlock Text="✓ RTX 4060 &amp; i7-14650HX ĐÃ SẴN SÀNG" FontSize="11" FontWeight="Bold" Foreground="#FF76B900"/>
+            </Border>
+
+            <Button Content="Đóng" Width="90" Click="OnCloseClicked" DockPanel.Dock="Right" Margin="8,0,0,0"/>
+            <Button Content="Áp dụng ngay" Background="#FF76B900" Foreground="#FF000000" FontWeight="Bold"
+                    Width="110" Click="OnApplyClicked" DockPanel.Dock="Right"/>
+        </DockPanel>
+    </Grid>
+</Window>
