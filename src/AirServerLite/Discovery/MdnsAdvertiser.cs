@@ -57,6 +57,8 @@ public sealed class MdnsAdvertiser : IDisposable
     private ServiceDiscovery? _sd;
     private ServiceProfile? _airplayProfile;
     private ServiceProfile? _raopProfile;
+    private ServiceProfile? _miracastProfile;
+    private ServiceProfile? _googlecastProfile;
     private bool _disposed;
 
     public bool IsRunning { get; private set; }
@@ -94,6 +96,30 @@ public sealed class MdnsAdvertiser : IDisposable
                 _sd.Advertise(_raopProfile);
                 _sd.Announce(_raopProfile);
                 Log.Info("mdns", $"Advertised {_raopProfile.FullyQualifiedName}");
+            }
+
+            try
+            {
+                _miracastProfile = BuildMiracastProfile();
+                _sd.Advertise(_miracastProfile);
+                _sd.Announce(_miracastProfile);
+                Log.Info("mdns", $"Advertised Miracast MICE: {_miracastProfile.FullyQualifiedName}");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("mdns", $"Miracast mDNS advertisement warning: {ex.Message}");
+            }
+
+            try
+            {
+                _googlecastProfile = BuildGoogleCastProfile();
+                _sd.Advertise(_googlecastProfile);
+                _sd.Announce(_googlecastProfile);
+                Log.Info("mdns", $"Advertised Google Cast: {_googlecastProfile.FullyQualifiedName}");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("mdns", $"Google Cast mDNS advertisement warning: {ex.Message}");
             }
 
             IsRunning = true;
@@ -180,6 +206,8 @@ public sealed class MdnsAdvertiser : IDisposable
             if (_sd is null) return;
             if (_airplayProfile is not null) _sd.Announce(_airplayProfile);
             if (_raopProfile is not null) _sd.Announce(_raopProfile);
+            if (_miracastProfile is not null) _sd.Announce(_miracastProfile);
+            if (_googlecastProfile is not null) _sd.Announce(_googlecastProfile);
             Log.Debug("mdns", "Re-announced services");
         }
         catch (Exception ex)
@@ -196,6 +224,8 @@ public sealed class MdnsAdvertiser : IDisposable
             {
                 if (_airplayProfile is not null) _sd.Unadvertise(_airplayProfile);
                 if (_raopProfile is not null) _sd.Unadvertise(_raopProfile);
+                if (_miracastProfile is not null) _sd.Unadvertise(_miracastProfile);
+                if (_googlecastProfile is not null) _sd.Unadvertise(_googlecastProfile);
                 _sd.Dispose();
             }
         }
@@ -208,8 +238,59 @@ public sealed class MdnsAdvertiser : IDisposable
             _sd = null;
             _airplayProfile = null;
             _raopProfile = null;
+            _miracastProfile = null;
+            _googlecastProfile = null;
             IsRunning = false;
         }
+    }
+
+    public static string[] BuildMiracastTxtRecords(string friendlyName)
+    {
+        return new[]
+        {
+            "wfd-version=1.0",
+            "wfd-id=00:11:22:33:44:55",
+            $"friendly-name={friendlyName}"
+        };
+    }
+
+    public static string[] BuildGoogleCastTxtRecords(string friendlyName, string deviceUuid)
+    {
+        return new[]
+        {
+            $"id={deviceUuid}",
+            $"fn={friendlyName}",
+            "md=Chromecast",
+            "rs=",
+            "st=0",
+            "ca=4101"
+        };
+    }
+
+    private ServiceProfile BuildMiracastProfile()
+    {
+        var p = new ServiceProfile(_identity.Name, "_display._tcp", 7236, new[] { _address });
+        p.Resources.RemoveAll(r => r is TXTRecord);
+        var txt = new TXTRecord { Name = p.FullyQualifiedName, TTL = TimeSpan.FromMinutes(75) };
+        foreach (var item in BuildMiracastTxtRecords(_identity.Name))
+        {
+            txt.Strings.Add(item);
+        }
+        p.Resources.Add(txt);
+        return p;
+    }
+
+    private ServiceProfile BuildGoogleCastProfile()
+    {
+        var p = new ServiceProfile(_identity.Name, "_googlecast._tcp", 8009, new[] { _address });
+        p.Resources.RemoveAll(r => r is TXTRecord);
+        var txt = new TXTRecord { Name = p.FullyQualifiedName, TTL = TimeSpan.FromMinutes(75) };
+        foreach (var item in BuildGoogleCastTxtRecords(_identity.Name, _identity.PairingUuid))
+        {
+            txt.Strings.Add(item);
+        }
+        p.Resources.Add(txt);
+        return p;
     }
 
     public void Dispose()
