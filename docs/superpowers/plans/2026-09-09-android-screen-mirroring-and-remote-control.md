@@ -20,7 +20,7 @@
 - Create: `src/AirServerLite/Android/MpegTsDemuxer.cs`
 - Create: `tests/AirServerLite.Tests/Android/MpegTsDemuxerTests.cs`
 
-- [ ] **Step 1: Write the failing unit tests for MPEG-TS packet demuxing**
+- [x] **Step 1: Write the failing unit tests for MPEG-TS packet demuxing**
 
 Create `tests/AirServerLite.Tests/Android/MpegTsDemuxerTests.cs`:
 ```csharp
@@ -72,12 +72,12 @@ public class MpegTsDemuxerTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~MpegTsDemuxerTests" -c Debug`
 Expected: Compilation error or FAIL because `MpegTsDemuxer` does not exist yet.
 
-- [ ] **Step 3: Implement MpegTsDemuxer**
+- [x] **Step 3: Implement MpegTsDemuxer**
 
 Create `src/AirServerLite/Android/MpegTsDemuxer.cs`:
 ```csharp
@@ -233,12 +233,12 @@ public sealed class MpegTsDemuxer
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~MpegTsDemuxerTests" -c Debug`
 Expected: PASS (2 passed, 0 failed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/AirServerLite/Android/MpegTsDemuxer.cs tests/AirServerLite.Tests/Android/MpegTsDemuxerTests.cs
@@ -255,7 +255,7 @@ git commit -m "feat(android): add MpegTsDemuxer for Miracast RTP stream extracti
 - Create: `src/AirServerLite/Android/Miracast/MiracastServer.cs`
 - Create: `tests/AirServerLite.Tests/Android/MiracastSessionTests.cs`
 
-- [ ] **Step 1: Write failing unit test for Miracast RTSP M1-M4 negotiation**
+- [x] **Step 1: Write failing unit test for Miracast RTSP M1-M4 negotiation**
 
 Create `tests/AirServerLite.Tests/Android/MiracastSessionTests.cs`:
 ```csharp
@@ -294,12 +294,12 @@ public class MiracastSessionTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~MiracastSessionTests" -c Debug`
 Expected: Compilation error or FAIL.
 
-- [ ] **Step 3: Implement Miracast Messages & RTSP State Machine**
+- [x] **Step 3: Implement Miracast Messages & RTSP State Machine**
 
 Create `src/AirServerLite/Android/Miracast/MiracastMessages.cs`:
 ```csharp
@@ -517,12 +517,12 @@ public sealed class MiracastServer : IDisposable
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~MiracastSessionTests" -c Debug`
 Expected: PASS (2 passed, 0 failed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/AirServerLite/Android/Miracast/* tests/AirServerLite.Tests/Android/MiracastSessionTests.cs
@@ -537,7 +537,7 @@ git commit -m "feat(android): add Miracast RTSP server and WFD protocol negotiat
 - Create: `src/AirServerLite/Android/Miracast/MiracastRtpReceiver.cs`
 - Create: `tests/AirServerLite.Tests/Android/MiracastRtpReceiverTests.cs`
 
-- [ ] **Step 1: Write failing test for MiracastRtpReceiver packet forwarding**
+- [x] **Step 1: Write failing test for MiracastRtpReceiver packet forwarding**
 
 Create `tests/AirServerLite.Tests/Android/MiracastRtpReceiverTests.cs`:
 ```csharp
@@ -563,12 +563,12 @@ public class MiracastRtpReceiverTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~MiracastRtpReceiverTests" -c Debug`
 Expected: Compilation error or FAIL.
 
-- [ ] **Step 3: Implement MiracastRtpReceiver**
+- [x] **Step 3: Implement MiracastRtpReceiver**
 
 Create `src/AirServerLite/Android/Miracast/MiracastRtpReceiver.cs`:
 ```csharp
@@ -664,12 +664,12 @@ public sealed class MiracastRtpReceiver : IDisposable
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~MiracastRtpReceiverTests" -c Debug`
 Expected: PASS (1 passed, 0 failed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/AirServerLite/Android/Miracast/MiracastRtpReceiver.cs tests/AirServerLite.Tests/Android/MiracastRtpReceiverTests.cs
@@ -686,7 +686,7 @@ git commit -m "feat(android): add Miracast RTP UDP receiver and VideoPipeline br
 - Create: `src/AirServerLite/Android/Scrcpy/ScrcpyStreamReceiver.cs`
 - Create: `tests/AirServerLite.Tests/Android/ScrcpyProtocolTests.cs`
 
-- [ ] **Step 1: Write failing unit test for Scrcpy control message serialization**
+- [x] **Step 1: Write failing unit test for Scrcpy control message serialization**
 
 Create `tests/AirServerLite.Tests/Android/ScrcpyProtocolTests.cs`:
 ```csharp
@@ -728,12 +728,12 @@ public class ScrcpyProtocolTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~ScrcpyProtocolTests" -c Debug`
 Expected: Compilation error or FAIL.
 
-- [ ] **Step 3: Implement Scrcpy Protocol & Control Client**
+- [x] **Step 3: Implement Scrcpy Protocol & Control Client**
 
 Create `src/AirServerLite/Android/Scrcpy/ScrcpyProtocol.cs`:
 ```csharp
@@ -976,12 +976,12 @@ public sealed class ScrcpyStreamReceiver : IDisposable
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~ScrcpyProtocolTests" -c Debug`
 Expected: PASS (2 passed, 0 failed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/AirServerLite/Android/Scrcpy/* tests/AirServerLite.Tests/Android/ScrcpyProtocolTests.cs
@@ -996,7 +996,7 @@ git commit -m "feat(android): add Scrcpy stream receiver and sub-millisecond rev
 - Modify: `src/AirServerLite/Discovery/MdnsAdvertiser.cs`
 - Create: `tests/AirServerLite.Tests/Discovery/AndroidDiscoveryTests.cs`
 
-- [ ] **Step 1: Write failing test for Miracast & Google Cast mDNS records**
+- [x] **Step 1: Write failing test for Miracast & Google Cast mDNS records**
 
 Create `tests/AirServerLite.Tests/Discovery/AndroidDiscoveryTests.cs`:
 ```csharp
@@ -1025,12 +1025,12 @@ public class AndroidDiscoveryTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~AndroidDiscoveryTests" -c Debug`
 Expected: Compilation error or FAIL.
 
-- [ ] **Step 3: Update MdnsAdvertiser with Android Discovery Records**
+- [x] **Step 3: Update MdnsAdvertiser with Android Discovery Records**
 
 Add to `src/AirServerLite/Discovery/MdnsAdvertiser.cs`:
 ```csharp
@@ -1059,12 +1059,12 @@ Add to `src/AirServerLite/Discovery/MdnsAdvertiser.cs`:
 ```
 And inside `AdvertiseOnInterface()` publish `_display._tcp` (port 7236) and `_googlecast._tcp` (port 8009) alongside `_airplay._tcp`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~AndroidDiscoveryTests" -c Debug`
 Expected: PASS (2 passed, 0 failed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/AirServerLite/Discovery/MdnsAdvertiser.cs tests/AirServerLite.Tests/Discovery/AndroidDiscoveryTests.cs
@@ -1081,7 +1081,7 @@ git commit -m "feat(discovery): advertise Miracast MICE and Google Cast via mDNS
 - Modify: `src/AirServerLite/Input/InputRouter.cs`
 - Create: `tests/AirServerLite.Tests/Input/AndroidInputSinkTests.cs`
 
-- [ ] **Step 1: Write failing unit test for Android input sink gesture mapping**
+- [x] **Step 1: Write failing unit test for Android input sink gesture mapping**
 
 Create `tests/AirServerLite.Tests/Input/AndroidInputSinkTests.cs`:
 ```csharp
@@ -1106,11 +1106,11 @@ public class AndroidInputSinkTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~AndroidInputSinkTests" -c Debug`
 
-- [ ] **Step 3: Implement IInputSink and AndroidInputSink**
+- [x] **Step 3: Implement IInputSink and AndroidInputSink**
 
 Create `src/AirServerLite/Input/IInputSink.cs`:
 ```csharp
@@ -1184,12 +1184,12 @@ public sealed class AndroidInputSink : IInputSink
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~AndroidInputSinkTests" -c Debug`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/AirServerLite/Input/IInputSink.cs src/AirServerLite/Input/AndroidInputSink.cs tests/AirServerLite.Tests/Input/AndroidInputSinkTests.cs
@@ -1207,7 +1207,7 @@ git commit -m "feat(input): add IInputSink and AndroidInputSink for unified remo
 - Create: `src/AirServerLite/UI/AndroidConnectDialog.xaml.cs`
 - Create: `tests/AirServerLite.Tests/UI/AndroidUiIntegrationTests.cs`
 
-- [ ] **Step 1: Write unit test verifying multi-platform session status in MainWindow**
+- [x] **Step 1: Write unit test verifying multi-platform session status in MainWindow**
 
 Create `tests/AirServerLite.Tests/UI/AndroidUiIntegrationTests.cs`:
 ```csharp
@@ -1229,11 +1229,11 @@ public class AndroidUiIntegrationTests
 }
 ```
 
-- [ ] **Step 2: Run test to verify it passes**
+- [x] **Step 2: Run test to verify it passes**
 
 Run: `dotnet test tests/AirServerLite.Tests/AirServerLite.Tests.csproj --filter "FullyQualifiedName~AndroidUiIntegrationTests" -c Debug`
 
-- [ ] **Step 3: Update MainWindow.xaml and MainWindow.xaml.cs to launch Miracast & Scrcpy servers**
+- [x] **Step 3: Update MainWindow.xaml and MainWindow.xaml.cs to launch Miracast & Scrcpy servers**
 
 In `MainWindow.xaml.cs`:
 - Instantiate and start `MiracastServer` alongside `AirPlayServer` and `DialServer`.
@@ -1242,12 +1242,12 @@ In `MainWindow.xaml.cs`:
 - Right-click mouse forwards Android Back button; middle-click forwards Android Home button.
 - Add menu item / button "Connect Android..." opening `AndroidConnectDialog` with steps for Samsung Smart View, Xiaomi Cast, and Wireless Debugging.
 
-- [ ] **Step 4: Build and test full solution**
+- [x] **Step 4: Build and test full solution**
 
 Run: `dotnet test AirServerLite.sln -c Debug`
 Expected: All tests pass cleanly.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/AirServerLite/MainWindow.xaml* src/AirServerLite/UI/AndroidConnectDialog.* tests/AirServerLite.Tests/UI/AndroidUiIntegrationTests.cs
