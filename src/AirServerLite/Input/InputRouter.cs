@@ -43,6 +43,7 @@ public sealed class InputRouter : IDisposable
     private bool _disposed;
 
     public bool Enabled { get; set; } = true;
+    public IInputSink? ActiveSink { get; set; }
 
     public event Action<string>? ActionPerformed;
 
@@ -57,7 +58,31 @@ public sealed class InputRouter : IDisposable
 
     public void OnMouseDown(Point controlPoint, MouseButton button)
     {
-        if (!Enabled || !_wda.IsConnected) return;
+        if (!Enabled) return;
+
+        if (ActiveSink != null && ActiveSink.IsConnected)
+        {
+            if (button == MouseButton.Right)
+            {
+                ActiveSink.Back();
+                Report("back");
+                return;
+            }
+            if (button == MouseButton.Middle)
+            {
+                ActiveSink.Home();
+                Report("home");
+                return;
+            }
+            if (button != MouseButton.Left) return;
+
+            _pressControlPoint = controlPoint;
+            _pressed = true;
+            _pressTimer.Restart();
+            return;
+        }
+
+        if (!_wda.IsConnected) return;
 
         if (button == MouseButton.Right)
         {
@@ -101,6 +126,29 @@ public sealed class InputRouter : IDisposable
 
         var from = _pressControlPoint;
         _pressDevicePoint = null;
+
+        if (ActiveSink != null && ActiveSink.IsConnected)
+        {
+            var devPoint = _mapper.ToDevicePoint(from, new WdaWindowSize(1080, 1920));
+            if (devPoint is not null)
+            {
+                if (distance <= _settings.TapMaxMovePx)
+                {
+                    ActiveSink.Tap(devPoint.Value);
+                    Report($"tap ({devPoint.Value.X:F0}, {devPoint.Value.Y:F0})");
+                }
+                else
+                {
+                    var endPoint = _mapper.ToDevicePoint(controlPoint, new WdaWindowSize(1080, 1920));
+                    if (endPoint is not null)
+                    {
+                        ActiveSink.Swipe(devPoint.Value, endPoint.Value, TimeSpan.FromMilliseconds(elapsed));
+                        Report($"swipe {distance:F0}px");
+                    }
+                }
+            }
+            return;
+        }
 
         _ = Task.Run(async () =>
         {
@@ -152,7 +200,20 @@ public sealed class InputRouter : IDisposable
     /// <summary>Wheel scroll becomes a swipe in the opposite direction (natural scrolling).</summary>
     public void OnMouseWheel(Point controlPoint, int delta)
     {
-        if (!Enabled || !_wda.IsConnected) return;
+        if (!Enabled) return;
+
+        if (ActiveSink != null && ActiveSink.IsConnected)
+        {
+            var pt = _mapper.ToDevicePoint(controlPoint, new WdaWindowSize(1080, 1920));
+            if (pt is not null)
+            {
+                ActiveSink.Scroll(pt.Value, delta);
+                Report($"scroll {(delta > 0 ? "up" : "down")}");
+            }
+            return;
+        }
+
+        if (!_wda.IsConnected) return;
 
         _ = Task.Run(async () =>
         {
